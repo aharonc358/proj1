@@ -25,6 +25,11 @@ const MAX_USERS = 10; // cap at 10
 const messages = []; // { id, user, text, ts }
 const polls = new Map(); // id -> { id, question, options: [{id,text,votes}], votesByUser: {userId: optionId}, createdAt }
 const users = new Map(); // socket.id -> { id, name }
+const privateMessages = new Map(); // key 'id1:id2' -> [{from,to,text,ts}]
+
+function dmKey(id1, id2) {
+  return [id1, id2].sort().join(':');
+}
 
 function getRoomUserCount() {
   const room = io.sockets.adapter.rooms.get(ROOM_NAME);
@@ -82,7 +87,22 @@ io.on('connection', (socket) => {
       text: text.trim(),
       ts: Date.now()
     };
+    const key = dmKey(fromUser.id, target.id);
+    const hist = privateMessages.get(key) || [];
+    hist.push(msg);
+    if (hist.length > 200) hist.shift();
+    privateMessages.set(key, hist);
     io.to(to).to(socket.id).emit('private_message', msg);
+  });
+
+  socket.on('open_private', ({ to }) => {
+    const fromUser = users.get(socket.id);
+    const target = users.get(to);
+    if (!fromUser || !target) return;
+    const key = dmKey(fromUser.id, target.id);
+    const hist = privateMessages.get(key) || [];
+    socket.emit('private_history', { with: target, messages: hist });
+    io.to(target.id).emit('private_history', { with: fromUser, messages: hist });
   });
 
   socket.on('create_poll', ({ question, options }) => {
