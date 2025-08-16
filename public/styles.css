@@ -52,3 +52,60 @@ h1 { font-size: 18px; margin: 0; }
 .poll .meta { color: #666; font-size: 12px; margin-bottom: 6px; }
 .poll .options { display: flex; flex-direction: column; gap: 6px; }
 .poll .options .vote { text-align: left; padding: 8px; border: 1px solid #ddd; background: #f9fafb; border-radius: 8px; cursor: pointer; }
+
+#privateChats {
+  position: fixed;
+  bottom: 10px;
+  right: 10px;
+  display: flex;
+  gap: 8px;
+}
+
+.private-chat {
+  width: 220px;
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+}
+
+.private-chat .header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 6px;
+  background: #f3f4f6;
+  border-bottom: 1px solid #ddd;
+  border-top-left-radius: 8px;
+  border-top-right-radius: 8px;
+}
+
+.private-chat .messages {
+  flex: 1;
+  padding: 4px;
+  overflow-y: auto;
+  height: 160px;
+}
+
+.private-chat .composer {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border-top: 1px solid #eee;
+}
+
+.private-chat .composer input {
+  flex: 1;
+  padding: 4px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+}
+
+.private-chat .composer button {
+  padding: 4px 6px;
+  border: 1px solid #ddd;
+  background: #fafafa;
+  border-radius: 4px;
+  cursor: pointer;
+}
