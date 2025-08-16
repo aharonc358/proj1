@@ -1,0 +1,53 @@
+
+body {
+  font-family: system-ui, Arial, sans-serif;
+  margin: 0;
+  background: #f5f6f8;
+  color: #222;
+}
+header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 16px; background: white; border-bottom: 1px solid #e5e7eb;
+}
+h1 { font-size: 18px; margin: 0; }
+.app { max-width: 1100px; margin: 0 auto; }
+.hidden { display: none; }
+
+#joinSection { padding: 24px; display: flex; gap: 8px; align-items: center; }
+#joinSection input { padding: 8px 10px; font-size: 14px; }
+#joinSection button { padding: 8px 12px; cursor: pointer; }
+.hint { color: #666; margin-left: 8px; }
+
+#chatSection {
+  display: grid;
+  grid-template-columns: 220px 1fr 320px;
+  gap: 12px; padding: 12px;
+}
+
+.left-pane, .center-pane, .right-pane {
+  background: white; border: 1px solid #e5e7eb; border-radius: 10px; padding: 10px;
+}
+
+#userList { list-style: none; padding-left: 16px; }
+#userList li { margin: 4px 0; }
+
+#messages {
+  height: 60vh; overflow-y: auto; background: #fafafa; border: 1px solid #eee; padding: 8px;
+}
+.message { margin: 6px 0; }
+.message .author { font-weight: 600; }
+.message .time { color: #666; font-size: 12px; margin-left: 8px; }
+.message.system { color: #555; font-style: italic; }
+
+.composer { display: flex; gap: 8px; margin-top: 8px; }
+.composer input { flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 8px; }
+.composer button { padding: 10px 14px; border: 1px solid #ddd; background: #fafafa; border-radius: 8px; cursor: pointer; }
+
+.create-poll input { width: 100%; padding: 8px; margin: 6px 0; border: 1px solid #ddd; border-radius: 8px; }
+.create-poll button { padding: 8px 10px; border: 1px solid #ddd; background: #fafafa; border-radius: 8px; cursor: pointer; margin-right: 6px; }
+
+.poll { border: 1px solid #eee; border-radius: 10px; padding: 8px; margin: 8px 0; }
+.poll .q { font-weight: 600; margin-bottom: 4px; }
+.poll .meta { color: #666; font-size: 12px; margin-bottom: 6px; }
+.poll .options { display: flex; flex-direction: column; gap: 6px; }
+.poll .options .vote { text-align: left; padding: 8px; border: 1px solid #ddd; background: #f9fafb; border-radius: 8px; cursor: pointer; }

@@ -1,0 +1,16 @@
+{
+  "name": "whatsapp-demo-chat-polls",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Tiny WhatsApp-style demo: group chat + polls (5\u201310 users)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5",
+    "uuid": "^9.0.1"
+  }
+}

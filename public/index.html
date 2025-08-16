@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Mini Chat + Polls (Demo)</title>
+  <link rel="stylesheet" href="styles.css"/>
+  <script src="/socket.io/socket.io.js"></script>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h1>Mini Chat + Polls</h1>
+      <div id="status"></div>
+    </header>
+
+    <section id="joinSection">
+      <input id="nameInput" placeholder="Enter your nickname" />
+      <button id="joinBtn">Join</button>
+      <div class="hint">Up to 10 users can join.</div>
+    </section>
+
+    <section id="chatSection" class="hidden">
+      <div class="left-pane">
+        <h3>Users</h3>
+        <ul id="userList"></ul>
+      </div>
+
+      <div class="center-pane">
+        <div id="messages"></div>
+        <div class="composer">
+          <input id="msgInput" placeholder="Type a message..." />
+          <button id="sendBtn">Send</button>
+        </div>
+      </div>
+
+      <div class="right-pane">
+        <div class="create-poll">
+          <h3>Create Poll</h3>
+          <input id="pollQuestion" placeholder="Question" />
+          <div id="options">
+            <input class="opt" placeholder="Option 1"/>
+            <input class="opt" placeholder="Option 2"/>
+          </div>
+          <button id="addOption">+ Option</button>
+          <button id="createPollBtn">Create</button>
+        </div>
+
+        <div class="polls">
+          <h3>Polls</h3>
+          <div id="pollList"></div>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script src="client.js"></script>
+</body>
+</html>
