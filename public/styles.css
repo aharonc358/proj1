@@ -29,7 +29,7 @@ h1 { font-size: 18px; margin: 0; }
 }
 
 #userList { list-style: none; padding-left: 16px; }
-#userList li { margin: 4px 0; }
+#userList li { margin: 4px 0; cursor: pointer; }
 
 #messages {
   height: 60vh; overflow-y: auto; background: #fafafa; border: 1px solid #eee; padding: 8px;
@@ -38,6 +38,7 @@ h1 { font-size: 18px; margin: 0; }
 .message .author { font-weight: 600; }
 .message .time { color: #666; font-size: 12px; margin-left: 8px; }
 .message.system { color: #555; font-style: italic; }
+.message.private { background: #f1f5ff; padding: 4px 6px; border-radius: 6px; }
 
 .composer { display: flex; gap: 8px; margin-top: 8px; }
 .composer input { flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 8px; }

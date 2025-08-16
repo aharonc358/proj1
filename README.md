@@ -3,6 +3,7 @@
 
 Tiny full-stack demo suitable for **5–10 users**. Features:
 - Group **text chat**
+- **Private one-to-one chat**
 - **Create polls** and **vote** (one vote per user, re-vote changes your choice)
 - Real-time updates (Socket.IO)
 - No auth, just pick a nickname and join

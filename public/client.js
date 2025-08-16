@@ -1,6 +1,7 @@
 
 const socket = io();
 let currentUser = null;
+let users = [];
 
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
@@ -42,6 +43,13 @@ function renderUsers(list) {
   list.forEach(u => {
     const li = document.createElement('li');
     li.textContent = u.name + (currentUser && u.id === currentUser.id ? ' (you)' : '');
+    li.dataset.id = u.id;
+    if (!currentUser || u.id !== currentUser.id) {
+      li.onclick = () => {
+        const text = prompt(`Private message to ${u.name}:`);
+        if (text) socket.emit('private_message', { to: u.id, text });
+      };
+    }
     userList.appendChild(li);
   });
 }
@@ -117,7 +125,8 @@ socket.on('joined', (state) => {
   joinSection.classList.add('hidden');
   chatSection.classList.remove('hidden');
 
-  renderUsers(state.users);
+  users = state.users;
+  renderUsers(users);
   messagesEl.innerHTML = '';
   state.messages.forEach(addMessage);
 
@@ -133,33 +142,39 @@ socket.on('error_msg', (msg) => alert(msg));
 
 socket.on('user_joined', (user) => {
   addSystem(`${user.name} joined.`);
-  // refresh user list by requesting new snapshot?
-  // For simplicity, add and re-render:
-  const lis = Array.from(userList.querySelectorAll('li')).map(li => li.textContent.replace(' (you)',''));
-  if (!lis.includes(user.name)) {
-    const li = document.createElement('li');
-    li.textContent = user.name;
-    userList.appendChild(li);
-  }
+  users.push(user);
+  renderUsers(users);
 });
 
 socket.on('user_left', (user) => {
   addSystem(`${user.name} left.`);
-  // Rebuild user list by asking the server would be ideal; simple prune:
-  Array.from(userList.children).forEach(li => {
-    if (li.textContent.startsWith(user.name)) li.remove();
-  });
+  users = users.filter(u => u.id !== user.id);
+  renderUsers(users);
 });
 
 socket.on('message_new', addMessage);
 
 socket.on('poll_new', renderPoll);
 socket.on('poll_update', renderPoll);
+socket.on('private_message', addPrivateMessage);
 
 function addSystem(text) {
   const div = document.createElement('div');
   div.className = 'message system';
   div.textContent = text;
+  messagesEl.appendChild(div);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+function addPrivateMessage({ from, to, text, ts }) {
+  const div = document.createElement('div');
+  div.className = 'message private';
+  const time = new Date(ts).toLocaleTimeString();
+  if (currentUser && from.id === currentUser.id) {
+    div.innerHTML = `<span class="author">To ${to.name}</span>: ${escapeHtml(text)} <span class="time">${time}</span>`;
+  } else {
+    div.innerHTML = `<span class="author">From ${from.name}</span>: ${escapeHtml(text)} <span class="time">${time}</span>`;
+  }
   messagesEl.appendChild(div);
   messagesEl.scrollTop = messagesEl.scrollHeight;
 }

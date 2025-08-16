@@ -71,6 +71,20 @@ io.on('connection', (socket) => {
     io.to(ROOM_NAME).emit('message_new', msg);
   });
 
+  socket.on('private_message', ({ to, text }) => {
+    const fromUser = users.get(socket.id);
+    const target = users.get(to);
+    if (!fromUser || !target) return;
+    if (typeof text !== 'string' || !text.trim()) return;
+    const msg = {
+      from: fromUser,
+      to: target,
+      text: text.trim(),
+      ts: Date.now()
+    };
+    io.to(to).to(socket.id).emit('private_message', msg);
+  });
+
   socket.on('create_poll', ({ question, options }) => {
     const user = users.get(socket.id);
     if (!user) return;
