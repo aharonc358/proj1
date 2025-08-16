@@ -26,7 +26,7 @@ function addMessage({ user, text, ts }) {
   const t = new Date(ts);
   const time = t.toLocaleTimeString();
   div.className = 'message';
-  div.innerHTML = `<span class="author">${user.name}</span>: ${escapeHtml(text)} <span class="time">${time}</span>`;
+  div.innerHTML = `<span class="author">${escapeHtml(user.name)}</span>: ${escapeHtml(text)} <span class="time">${time}</span>`;
   messagesEl.appendChild(div);
   messagesEl.scrollTop = messagesEl.scrollHeight;
 }
