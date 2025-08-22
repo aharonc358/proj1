@@ -10,7 +10,11 @@ import uuid
 from collections import defaultdict
 
 app = Flask(__name__)
-socketio = SocketIO(app, cors_allowed_origins="*")
+socketio = SocketIO(app, 
+                   cors_allowed_origins="*",
+                   ping_timeout=60,
+                   ping_interval=25,
+                   async_mode='threading')
 
 # Serve static client files
 @app.route('/')
@@ -41,6 +45,14 @@ def get_room_user_count():
 def handle_connect():
     """Handle new client connection"""
     print('Client connected:', request.sid)
+    print(f'Connection origin: {request.origin}')
+    print(f'Client transport: {request.environ.get("wsgi.websocket_version", "unknown")}')
+    try:
+        headers = request.headers
+        if headers:
+            print(f'Headers: Host={headers.get("Host", "unknown")}, Origin={headers.get("Origin", "unknown")}')
+    except Exception as e:
+        print(f'Error accessing headers: {e}')
 
 @socketio.on('join')
 def handle_join(data):
@@ -230,10 +242,12 @@ def handle_vote(data):
 def handle_disconnect():
     """Handle client disconnection"""
     socket_id = request.sid
+    print(f'Client disconnected: {socket_id}')
     user = users.get(socket_id)
     
     if user:
         user['in_room'] = False
+        print(f'User {user["name"]} left the room')
         emit('user_left', user, room=ROOM_NAME)
         
         # Clean up - we'll keep the user data in case they reconnect
@@ -263,4 +277,7 @@ class Mixnet:
 if __name__ == '__main__':
     PORT = int(os.environ.get('PORT', 3001))  # Use a different port from Node.js
     print(f"Server listening on http://localhost:{PORT}")
-    socketio.run(app, host='0.0.0.0', port=PORT)
+    print(f"Access via network: http://0.0.0.0:{PORT}")
+    print(f"For ngrok usage: Use 'ngrok http {PORT}'")
+    print(f"Socket.IO configuration: async_mode={socketio.async_mode}, cors_allowed_origins=*")
+    socketio.run(app, host='0.0.0.0', port=PORT, debug=True)

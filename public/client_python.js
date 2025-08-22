@@ -255,17 +255,31 @@ window.addEventListener('load', () => {
   addOptionBtn.click();
   addOptionBtn.click();
   
-  // Debug logs for socket connection
+  // Enhanced debug logs for socket connection
   console.log("Socket.IO client initialized");
+  console.log("Socket.IO version:", io.version);
+  console.log("Connection URL:", window.location.origin);
+  
   socket.on('connect', () => {
-    console.log('Connected to server');
+    console.log('Connected to server', socket.id);
+    statusEl.textContent = statusEl.textContent || `Connected (${socket.id})`;
   });
   
-  socket.on('disconnect', () => {
-    console.log('Disconnected from server');
+  socket.on('disconnect', (reason) => {
+    console.log('Disconnected from server:', reason);
+    statusEl.textContent = `Disconnected: ${reason}`;
   });
   
   socket.on('connect_error', (err) => {
     console.error('Connection error:', err);
+    statusEl.textContent = `Connection error: ${err.message}`;
   });
+  
+  // Display connection status visually
+  if (socket.connected) {
+    console.log('Already connected on page load');
+  } else {
+    console.log('Waiting for connection...');
+    statusEl.textContent = 'Connecting...';
+  }
 });
