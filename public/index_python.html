@@ -7,18 +7,30 @@
   <link rel="stylesheet" href="styles.css"/>
   <!-- Use a specific version of Socket.IO client compatible with Flask-SocketIO -->
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <!-- Load cryptography utilities for E2E encryption -->
+  <script src="crypto-utils.js"></script>
+  <!-- Load fallback cryptography utilities -->
+  <script src="crypto-fallback.js"></script>
 </head>
 <body>
   <div class="app">
     <header>
       <h1>Mini Chat + Polls (Python Version)</h1>
       <div id="status"></div>
+      <div id="crypto-status" style="font-size: 0.8rem; margin-top: 5px;"></div>
+      <div id="crypto-controls" style="font-size: 0.8rem; margin-top: 5px; display: none;">
+        <button id="enable-fallback" onclick="enableCryptoFallback(); this.disabled = true; document.getElementById('crypto-status').textContent = 'Using fallback crypto (NOT SECURE)';">Enable Fallback Mode</button>
+        <button id="test-crypto" onclick="CryptoUtils.testCryptoSupport().then(result => alert('Crypto test ' + (result ? 'PASSED' : 'FAILED') + '. See console for details.'))">Test Crypto</button>
+      </div>
     </header>
 
     <section id="joinSection">
       <input id="nameInput" placeholder="Enter your nickname" />
       <button id="joinBtn">Join</button>
-      <div class="hint">Up to 10 users can join.</div>
+      <div class="join-info">
+        <div class="hint">Up to 10 users can join.</div>
+        <div id="join-encryption-status"></div>
+      </div>
     </section>
 
       <section id="chatSection" class="hidden">

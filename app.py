@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Python implementation of the WhatsApp-style demo chat + polls
-# Rewrite of the original server.js
+# Rewrite of the original server.js with end-to-end encryption
 
 from flask import Flask, send_from_directory, request
 from flask_socketio import SocketIO, emit, join_room
@@ -8,6 +8,11 @@ import os
 import time
 import uuid
 from collections import defaultdict
+
+# Import our models
+from models.user import User
+from models.message import Message, PrivateMessage, EncryptedMessage, EncryptedPrivateMessage
+from crypto.elgamal import ElGamalCrypto
 
 app = Flask(__name__)
 socketio = SocketIO(app, 
@@ -25,13 +30,13 @@ def index():
 def static_files(path):
     return send_from_directory('public', path)
 
-# In-memory state (same as original)
+# In-memory state 
 ROOM_NAME = "main"
 MAX_USERS = 10  # cap at 10
-messages = []  # [{ id, user, text, ts }]
+messages = []  # Message objects converted to dicts
 polls = {}  # id -> { id, question, options: [{id,text,votes}], votesByUser: {userId: optionId}, createdAt }
-users = {}  # socket_id -> { id, name }
-private_messages = {}  # key 'id1:id2' -> [{from,to,text,ts}]
+users = {}  # socket_id -> User objects
+private_messages = {}  # key 'id1:id2' -> [{from,to,text,ts,encrypted,encryptedContent}]
 
 def dm_key(id1, id2):
     """Generate a consistent key for private messages between two users"""
@@ -39,7 +44,7 @@ def dm_key(id1, id2):
 
 def get_room_user_count():
     """Get the number of users in the main room"""
-    return len([u for u in users.values() if u.get('in_room', False)])
+    return len([u for u in users.values() if u.in_room])
 
 @socketio.on('connect')
 def handle_connect():
@@ -67,22 +72,27 @@ def handle_join(data):
         emit('room_full', {'max': MAX_USERS})
         return
         
-    # Create user
+    # Create user with encryption keys
     socket_id = request.sid
-    user = {'id': socket_id, 'name': name, 'in_room': True}
+    user = User(socket_id, name)
     users[socket_id] = user
     join_room(ROOM_NAME)
     
+    print(f"User {name} joined with public key: {user.public_key[:40]}...")
+    
+    # Convert users to dicts for sending
+    user_dicts = [u.to_dict() for u in users.values() if u.in_room]
+    
     # Send initial state
     emit('joined', {
-        'self': user,
-        'users': [u for u in users.values() if u.get('in_room', False)],
+        'self': user.to_dict(),
+        'users': user_dicts,
         'messages': messages,
         'polls': list(polls.values())
     })
     
     # Notify others
-    emit('user_joined', user, room=ROOM_NAME, skip_sid=socket_id)
+    emit('user_joined', user.to_dict(), room=ROOM_NAME, skip_sid=socket_id)
 
 @socketio.on('send_message')
 def handle_message(text):
@@ -96,18 +106,15 @@ def handle_message(text):
     if not isinstance(text, str) or not text.strip():
         return
         
-    msg = {
-        'id': str(uuid.uuid4()),
-        'user': user,
-        'text': text.strip(),
-        'ts': int(time.time() * 1000)  # Timestamp in milliseconds
-    }
+    # Create message object and convert to dict
+    msg = Message(user.to_dict(), text.strip())
+    msg_dict = msg.to_dict()
     
-    messages.append(msg)
+    messages.append(msg_dict)
     if len(messages) > 200:
         messages.pop(0)  # simple cap
         
-    emit('message_new', msg, room=ROOM_NAME)
+    emit('message_new', msg_dict, room=ROOM_NAME)
 
 @socketio.on('private_message')
 def handle_private_message(data):
@@ -125,16 +132,13 @@ def handle_private_message(data):
     if not isinstance(text, str) or not text.strip():
         return
         
-    msg = {
-        'from': from_user,
-        'to': to_user,
-        'text': text.strip(),
-        'ts': int(time.time() * 1000)
-    }
+    # Create message object and convert to dict
+    msg = PrivateMessage(from_user.to_dict(), to_user.to_dict(), text.strip())
+    msg_dict = msg.to_dict()
     
-    key = dm_key(from_user['id'], to_user['id'])
+    key = dm_key(from_user.id, to_user.id)
     hist = private_messages.get(key, [])
-    hist.append(msg)
+    hist.append(msg_dict)
     
     if len(hist) > 200:
         hist.pop(0)  # simple cap
@@ -143,7 +147,7 @@ def handle_private_message(data):
     
     # Send to both sender and recipient
     for sid in [to_user_id, socket_id]:
-        emit('private_message', msg, room=sid)
+        emit('private_message', msg_dict, room=sid)
 
 @socketio.on('open_private')
 def handle_open_private(data):
@@ -156,11 +160,11 @@ def handle_open_private(data):
     if not from_user or not to_user:
         return
         
-    key = dm_key(from_user['id'], to_user['id'])
+    key = dm_key(from_user.id, to_user.id)
     hist = private_messages.get(key, [])
     
-    emit('private_history', {'with': to_user, 'messages': hist}, room=socket_id)
-    emit('private_history', {'with': from_user, 'messages': hist}, room=to_user_id)
+    emit('private_history', {'with': to_user.to_dict(), 'messages': hist}, room=socket_id)
+    emit('private_history', {'with': from_user.to_dict(), 'messages': hist}, room=to_user_id)
 
 @socketio.on('create_poll')
 def handle_create_poll(data):
@@ -196,7 +200,7 @@ def handle_create_poll(data):
     poll = {
         'id': poll_id,
         'question': question,
-        'createdBy': user['name'],
+        'createdBy': user.name,
         'options': [{'id': str(uuid.uuid4()), 'text': text, 'votes': 0} for text in clean_opts],
         'votesByUser': {},  # userId -> optionId
         'createdAt': int(time.time() * 1000)
@@ -222,7 +226,7 @@ def handle_vote(data):
         return
         
     # If already voted, decrement prior choice
-    prev = poll['votesByUser'].get(user['id'])
+    prev = poll['votesByUser'].get(user.id)
     if prev:
         prev_opt = next((o for o in poll['options'] if o['id'] == prev), None)
         if prev_opt:
@@ -233,7 +237,7 @@ def handle_vote(data):
     if not opt:
         return
         
-    poll['votesByUser'][user['id']] = option_id
+    poll['votesByUser'][user.id] = option_id
     opt['votes'] += 1
     
     emit('poll_update', poll, room=ROOM_NAME)
@@ -246,38 +250,71 @@ def handle_disconnect():
     user = users.get(socket_id)
     
     if user:
-        user['in_room'] = False
-        print(f'User {user["name"]} left the room')
-        emit('user_left', user, room=ROOM_NAME)
+        user.in_room = False
+        print(f'User {user.name} left the room')
+        emit('user_left', user.to_dict(), room=ROOM_NAME)
         
         # Clean up - we'll keep the user data in case they reconnect
         # but mark them as not in the room
         # In a real app with persistence, you'd want to handle cleanup differently
 
-# Add placeholders for future security enhancements
-class MessageEncryption:
-    """Placeholder for future ElGamal encryption implementation"""
-    @staticmethod
-    def encrypt(message, key):
-        # Will be implemented in Phase 2
-        return message
-        
-    @staticmethod
-    def decrypt(encrypted, key):
-        # Will be implemented in Phase 2
-        return encrypted
-
-class Mixnet:
-    """Placeholder for future mixnet implementation"""
-    @staticmethod
-    def process(messages):
-        # Will be implemented in Phase 2
-        return messages
+# Add handler for encrypted private messages
+@socketio.on('send_encrypted_private_message')
+def handle_encrypted_private_message(data):
+    """Handle encrypted private messages between users."""
+    socket_id = request.sid
+    from_user = users.get(socket_id)
+    if not from_user:
+        return
+    
+    to_user_id = data.get('to')
+    encrypted_content = data.get('encryptedContent')
+    
+    to_user = users.get(to_user_id)
+    if not to_user or not encrypted_content:
+        return
+    
+    # Create encrypted message
+    msg = EncryptedPrivateMessage(from_user.to_dict(), to_user.to_dict(), encrypted_content)
+    msg_dict = msg.to_dict()
+    
+    # Store in private messages history
+    key = dm_key(from_user.id, to_user.id)
+    hist = private_messages.get(key, [])
+    hist.append(msg_dict)
+    
+    if len(hist) > 200:
+        hist.pop(0)  # simple cap
+    
+    private_messages[key] = hist
+    
+    # Send to both sender and recipient
+    for sid in [to_user_id, socket_id]:
+        emit('encrypted_private_message', msg_dict, room=sid)
+    
+    print(f"Encrypted message sent from {from_user.name} to {to_user.name}")
 
 if __name__ == '__main__':
-    PORT = int(os.environ.get('PORT', 3001))  # Use a different port from Node.js
-    print(f"Server listening on http://localhost:{PORT}")
-    print(f"Access via network: http://0.0.0.0:{PORT}")
-    print(f"For ngrok usage: Use 'ngrok http {PORT}'")
-    print(f"Socket.IO configuration: async_mode={socketio.async_mode}, cors_allowed_origins=*")
-    socketio.run(app, host='0.0.0.0', port=PORT, debug=True)
+    # Try multiple ports in case of conflicts
+    ports = [3001, 3002, 3003, 3004, 5000]
+    
+    # Use PORT environment variable if provided
+    if os.environ.get('PORT'):
+        ports.insert(0, int(os.environ.get('PORT')))
+        
+    for PORT in ports:
+        try:
+            print(f"Trying to start server on port {PORT}...")
+            print(f"Server listening on http://localhost:{PORT}")
+            print(f"Access via network: http://0.0.0.0:{PORT}")
+            print(f"For ngrok usage: Use 'ngrok http {PORT}'")
+            print(f"Socket.IO configuration: async_mode={socketio.async_mode}, cors_allowed_origins=*")
+            socketio.run(app, host='0.0.0.0', port=PORT, debug=True, allow_unsafe_werkzeug=True)
+            # If we reach this point, the server started successfully
+            break
+        except OSError as e:
+            if "Address already in use" in str(e) or "address already in use" in str(e).lower():
+                print(f"Port {PORT} is already in use, trying next port...")
+            else:
+                print(f"Error starting server on port {PORT}: {e}")
+                break  # Exit on non-port-conflict errors
