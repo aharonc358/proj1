@@ -633,7 +633,7 @@ function addEncryptedGroupMessage({ user, text, ts, encrypted = true, messageId 
   const time = new Date(ts).toLocaleTimeString();
   
   // Add message-specific classes
-  div.className = 'message';
+  div.className = 'message mixed';  // Add 'mixed' class to indicate mixnet processing
   if (encrypted) {
     div.classList.add('encrypted');
   }
@@ -740,6 +740,13 @@ function addEncryptionStyles() {
       top: 5px;
       color: #28a745;
     }
+    
+    .message.mixed:before {
+      content: "🔀";
+      font-size: 12px;
+      margin-right: 5px;
+      opacity: 0.7;
+    }
 
     .crypto-warning {
       background-color: #fff3cd;
@@ -778,6 +785,31 @@ window.addEventListener('load', () => {
   
   // Add encryption styles
   addEncryptionStyles();
+
+  // Add mixnet info message
+  setTimeout(() => {
+    const chatSection = document.getElementById('chatSection');
+    if (chatSection) {
+      const mixnetInfo = document.createElement('div');
+      mixnetInfo.className = 'mixnet-info';
+      mixnetInfo.innerHTML = '🔀 Messages are mixed for enhanced privacy';
+      mixnetInfo.style.fontSize = '0.8rem';
+      mixnetInfo.style.color = '#6c757d';
+      mixnetInfo.style.padding = '5px';
+      mixnetInfo.style.textAlign = 'center';
+      mixnetInfo.style.marginTop = '10px';
+      mixnetInfo.style.backgroundColor = '#f8f9fa';
+      mixnetInfo.style.borderRadius = '4px';
+      
+      // Insert after the status element
+      const statusEl = document.getElementById('status');
+      if (statusEl && statusEl.parentNode) {
+        statusEl.parentNode.insertBefore(mixnetInfo, statusEl.nextSibling);
+      } else {
+        chatSection.appendChild(mixnetInfo);
+      }
+    }
+  }, 1000); // Slight delay to ensure DOM is ready
   
   // Enhanced debug logs for socket connection
   console.log("Socket.IO client initialized");

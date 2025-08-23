@@ -13,6 +13,7 @@ from collections import defaultdict
 from models.user import User
 from models.message import Message, PrivateMessage, EncryptedMessage, EncryptedPrivateMessage, EncryptedGroupMessage
 from crypto.elgamal import ElGamalCrypto
+from crypto.mixnet import MixNode, MixnetManager
 
 app = Flask(__name__)
 socketio = SocketIO(app, 
@@ -38,6 +39,27 @@ polls = {}  # id -> { id, question, options: [{id,text,votes}], votesByUser: {us
 users = {}  # socket_id -> User objects
 private_messages = {}  # key 'id1:id2' -> [{from,to,text,ts,encrypted,encryptedContent}]
 user_keys = {}  # id -> publicKey (OpenPGP format)
+
+# Initialize mixnet for anonymous message delivery
+mixnet_manager = MixnetManager(socketio)
+mix_node1 = MixNode("node1", batch_size=2, max_delay_ms=50)  # Reduced batch size and max delay for better conversation flow
+mixnet_manager.add_node(mix_node1)
+
+# Initialize background mixnet processing
+def start_mixnet_processing():
+    """Start background mixnet processing task."""
+    print("Starting mixnet background processing task...")
+    socketio.start_background_task(process_mixnet_continuously)
+    
+def process_mixnet_continuously():
+    """Background task to process mixnet messages."""
+    print("Mixnet processor started")
+    while True:
+        try:
+            mixnet_manager.process_messages()
+        except Exception as e:
+            print(f"Error in mixnet processing task: {e}")
+        socketio.sleep(0.05)  # Check more frequently (every 50ms) for responsive message processing
 
 def dm_key(id1, id2):
     """Generate a consistent key for private messages between two users"""
@@ -387,18 +409,19 @@ def handle_encrypted_group_message(data):
         if len(messages) > 200:
             messages.pop(0)  # simple cap
         
-        # Send individualized encrypted content to each recipient
+        # Send individualized encrypted content to each recipient through mixnet
         for user_id, encrypted_content in encrypted_contents.items():
             recipient = next((u for u in users.values() if u.id == user_id), None)
             if recipient:
-                # Send the specific encrypted version to this recipient
-                individual_msg = msg_dict.copy()
-                individual_msg['encryptedContent'] = encrypted_content
-                print(f"Sending encrypted message to {recipient.name} (ID: {recipient.id})")
-                
-                # In Flask-SocketIO, for room parameter we need to use the socket ID itself as the room
-                emit('encrypted_group_message', individual_msg, room=recipient.id)
-                print(f"Emitted message to {recipient.name} with socket ID {recipient.id}")
+                print(f"Routing encrypted message to {recipient.name} (ID: {recipient.id}) through mixnet")
+                # Add to mixnet instead of emitting directly
+                mixnet_manager.add_message(
+                    encrypted_content=encrypted_content,
+                    recipient_id=recipient.id,
+                    user_data=from_user.to_dict(),
+                    message_id=message_id,
+                    message_type='group'
+                )
             else:
                 print(f"Warning: Recipient with ID {user_id} not found")
         
@@ -407,6 +430,9 @@ def handle_encrypted_group_message(data):
         print(f"Error processing encrypted group message: {e}")
 
 if __name__ == '__main__':
+    # Start mixnet processing
+    start_mixnet_processing()
+    
     # Try multiple ports in case of conflicts
     ports = [3001, 3002, 3003, 3004, 5000]
     
