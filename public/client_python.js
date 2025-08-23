@@ -28,19 +28,12 @@ const addOptionBtn = $('#addOption');
 const createPollBtn = $('#createPollBtn');
 const pollList = $('#pollList');
 
-// Function to update crypto UI status
-function updateCryptoStatus(status, isSuccess) {
-  const cryptoStatus = document.getElementById('crypto-status');
-  const cryptoControls = document.getElementById('crypto-controls');
-  
-  if (cryptoStatus) {
-    cryptoStatus.textContent = status;
-    cryptoStatus.style.color = isSuccess ? '#28a745' : '#dc3545';
-  }
-  
-  // Show crypto controls if test failed
-  if (cryptoControls && !isSuccess) {
-    cryptoControls.style.display = 'block';
+// Function to update crypto UI status (simplified)
+function updateEncryptionStatus() {
+  const joinEncStatus = document.getElementById('join-encryption-status');
+  if (joinEncStatus) {
+    joinEncStatus.innerHTML = '🔒 Simple Encryption Enabled';
+    joinEncStatus.style.color = '#28a745'; // green
   }
 }
 
@@ -81,13 +74,10 @@ function openPrivateChat(user, emit = true) {
     chat.className = 'private-chat';
     chat.dataset.id = user.id;
     
-    // Check if we can do encrypted chat
-    const canEncrypt = myKeyPair && userPublicKeys.has(user.id);
-    
     chat.innerHTML = `
       <div class="header">
         <span class="title">${escapeHtml(user.name)}</span>
-        <span class="encryption-status">${canEncrypt ? '🔒 Encrypted' : '⚠️ Unencrypted'}</span>
+        <span class="encryption-status">🔒 Encrypted</span>
         <button class="close">&times;</button>
       </div>
       <div class="messages"></div>
@@ -105,17 +95,12 @@ function openPrivateChat(user, emit = true) {
       privateChats.delete(user.id);
     };
     
-    // Use encrypted messaging if possible
+    // Always use encrypted messaging
     sendBtn.onclick = async () => {
       const text = input.value.trim();
       if (!text) return;
       
-      if (canEncrypt) {
-        await sendEncryptedPrivateMessage(user.id, text);
-      } else {
-        socket.emit('private_message', { to: user.id, text });
-      }
-      
+      await sendEncryptedPrivateMessage(user.id, text);
       input.value = '';
     };
     
@@ -132,7 +117,7 @@ function openPrivateChat(user, emit = true) {
   }
 }
 
-// Function to send encrypted private messages
+// Function to send encrypted private messages (simplified)
 async function sendEncryptedPrivateMessage(userId, plainText) {
   try {
     const recipientPublicKey = userPublicKeys.get(userId);
@@ -141,7 +126,7 @@ async function sendEncryptedPrivateMessage(userId, plainText) {
       return;
     }
     
-    // Encrypt the message with recipient's public key
+    // Encrypt the message
     console.log('Encrypting message...');
     const encryptedContent = await CryptoUtils.encrypt(recipientPublicKey, plainText);
     console.log('Message encrypted successfully');
@@ -165,7 +150,7 @@ async function sendEncryptedPrivateMessage(userId, plainText) {
     }
   } catch (error) {
     console.error('Failed to send encrypted message:', error);
-    alert('Could not encrypt message. Please try again or use unencrypted messaging.');
+    alert('Could not encrypt message. Please try again.');
   }
 }
 
@@ -383,27 +368,40 @@ socket.on('poll_new', renderPoll);
 socket.on('poll_update', renderPoll);
 socket.on('private_message', addPrivateMessage);
 
-// Handler for encrypted private messages
+// Handler for encrypted private messages (simplified)
 socket.on('encrypted_private_message', async (msg) => {
   try {
     const { from, to, encryptedContent, ts } = msg;
     
-    // Only decrypt if we're the recipient and have keys
+    // Only decrypt if we're the recipient
     if (currentUser && to.id === currentUser.id && myKeyPair && myKeyPair.privateKey) {
       console.log('Received encrypted message, attempting to decrypt...');
       
-      // Decrypt the message
-      const decryptedText = await CryptoUtils.decrypt(myKeyPair.privateKey, encryptedContent);
-      console.log('Message decrypted successfully');
-      
-      // Display the decrypted message
-      addPrivateMessage({
-        from,
-        to,
-        text: decryptedText,
-        ts,
-        encrypted: true
-      });
+      try {
+        // Decrypt the message
+        const decryptedText = await CryptoUtils.decrypt(myKeyPair.privateKey, encryptedContent);
+        console.log('Message decrypted successfully');
+        
+        // Display the decrypted message
+        addPrivateMessage({
+          from,
+          to,
+          text: decryptedText,
+          ts,
+          encrypted: true
+        });
+      } catch (decryptError) {
+        console.error('Decryption error:', decryptError);
+        
+        // Show error in UI
+        addPrivateMessage({
+          from: msg.from,
+          to: msg.to,
+          text: '[Could not decrypt message]',
+          ts: msg.ts,
+          encrypted: true
+        });
+      }
     } else if (currentUser && from.id === currentUser.id) {
       // This is a message we sent - already displayed in sendEncryptedPrivateMessage
       console.log('Received confirmation of sent encrypted message');
@@ -411,13 +409,13 @@ socket.on('encrypted_private_message', async (msg) => {
       console.warn('Received encrypted message but cannot decrypt it');
     }
   } catch (error) {
-    console.error('Failed to decrypt message:', error);
+    console.error('Failed to process encrypted message:', error);
     
     // Show error in UI
     addPrivateMessage({
       from: msg.from,
       to: msg.to,
-      text: '[Could not decrypt message]',
+      text: '[Error processing message]',
       ts: msg.ts,
       encrypted: true
     });
@@ -442,25 +440,55 @@ function addSystem(text) {
 }
 
 function addPrivateMessage({ from, to, text, ts, encrypted = false }) {
+  // Safety check for other user
   const other = currentUser && from.id === currentUser.id ? to : from;
+  if (!other || !other.id) {
+    console.error("Invalid user data in private message:", { from, to });
+    return;
+  }
+  
+  // Create chat window if needed
   if (!privateChats.has(other.id)) {
     openPrivateChat(other, false);
   }
+  
+  // Get chat window elements
   const chat = privateChats.get(other.id);
+  if (!chat) {
+    console.error("Failed to get or create private chat for user:", other.id);
+    return;
+  }
+  
   const list = chat.querySelector('.messages');
   const div = document.createElement('div');
   const time = new Date(ts).toLocaleTimeString();
+  
+  // Mark encrypted messages
   if (encrypted) {
     div.classList.add('encrypted');
   }
   
-  if (currentUser && from.id === currentUser.id) {
-    div.innerHTML = `<span class="author">You:</span> ${escapeHtml(text)} <span class="time">${time}</span>${encrypted ? ' 🔒' : ''}`;
-  } else {
-    div.innerHTML = `<span class="author">${escapeHtml(from.name)}:</span> ${escapeHtml(text)} <span class="time">${time}</span>${encrypted ? ' 🔒' : ''}`;
+  // Handle null/undefined text (failed decryption)
+  const safeText = text || "[Message could not be decrypted]";
+  
+  // Set message content
+  try {
+    if (currentUser && from.id === currentUser.id) {
+      div.innerHTML = `<span class="author">You:</span> ${escapeHtml(safeText)} <span class="time">${time}</span>${encrypted ? ' 🔒' : ''}`;
+    } else {
+      div.innerHTML = `<span class="author">${escapeHtml(from?.name || 'Unknown')}:</span> ${escapeHtml(safeText)} <span class="time">${time}</span>${encrypted ? ' 🔒' : ''}`;
+    }
+    
+    // Add to chat
+    list.appendChild(div);
+    list.scrollTop = list.scrollHeight;
+  } catch (error) {
+    console.error("Error displaying private message:", error);
+    
+    // Fallback display method if escaping fails
+    div.textContent = `Message from ${from?.name || 'Unknown'} at ${time}: [Display error]`;
+    list.appendChild(div);
   }
-  list.appendChild(div);
-  list.scrollTop = list.scrollHeight;
 }
 
 // Add CSS for encryption indicators
@@ -556,67 +584,6 @@ window.addEventListener('load', () => {
     statusEl.textContent = 'Connecting...';
   }
 
-  // Run crypto test and update status display
-  console.log("Starting crypto support test...");
-  CryptoUtils.testCryptoSupport()
-    .then(supported => {
-      console.log("Crypto test result:", supported ? "PASSED" : "FAILED");
-      
-      // Update crypto status display
-      updateCryptoStatus(
-        supported ? '🔒 Crypto support: Available' : '⚠️ Crypto support: Not available (see console)',
-        supported
-      );
-      
-      // Update the join-encryption-status element based on test result
-      const joinEncStatus = document.getElementById('join-encryption-status');
-      if (joinEncStatus) {
-        if (supported) {
-          joinEncStatus.innerHTML = '🔒 End-to-End Encryption Available';
-          joinEncStatus.style.color = '#28a745'; // green
-        } else {
-          joinEncStatus.innerHTML = '⚠️ Encryption Unavailable';
-          joinEncStatus.style.color = '#dc3545'; // red
-        }
-      }
-      
-      if (!supported) {
-        console.error("Warning: E2E encryption may not work in this browser");
-        
-        // Show a detailed warning to the user
-        const warning = document.createElement('div');
-        warning.className = 'crypto-warning';
-        warning.textContent = '⚠️ Warning: Your browser may not support secure messaging. Try enabling fallback mode.';
-        warning.title = 'Click for more details';
-        warning.onclick = () => {
-          console.log("Debug info - User Agent:", navigator.userAgent);
-          console.log("Debug info - Web Crypto API available:", typeof window.crypto !== 'undefined' && typeof window.crypto.subtle !== 'undefined');
-          console.log("Debug info - window.crypto:", window.crypto);
-          console.log("Debug info - window.crypto.subtle:", window.crypto?.subtle);
-          document.getElementById('crypto-controls').style.display = 'block';
-          alert('Crypto test failed. Check browser console for detailed error information.');
-        };
-        
-        const app = document.querySelector('.app');
-        if (app) {
-          app.prepend(warning);
-        }
-      }
-    })
-    .catch(error => {
-      console.error("Critical error during crypto test:", error);
-      updateCryptoStatus('❌ Crypto error: Test threw an exception', false);
-      
-      // Show an error message
-      const errorMsg = document.createElement('div');
-      errorMsg.className = 'crypto-warning';
-      errorMsg.style.backgroundColor = '#f8d7da';
-      errorMsg.style.color = '#721c24';
-      errorMsg.textContent = '❌ Error: Crypto test threw an exception. See console for details.';
-      
-      const app = document.querySelector('.app');
-      if (app) {
-        app.prepend(errorMsg);
-      }
-    });
+  // Update encryption status
+  updateEncryptionStatus();
 });

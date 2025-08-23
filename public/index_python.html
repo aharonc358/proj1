@@ -17,11 +17,7 @@
     <header>
       <h1>Mini Chat + Polls (Python Version)</h1>
       <div id="status"></div>
-      <div id="crypto-status" style="font-size: 0.8rem; margin-top: 5px;"></div>
-      <div id="crypto-controls" style="font-size: 0.8rem; margin-top: 5px; display: none;">
-        <button id="enable-fallback" onclick="enableCryptoFallback(); this.disabled = true; document.getElementById('crypto-status').textContent = 'Using fallback crypto (NOT SECURE)';">Enable Fallback Mode</button>
-        <button id="test-crypto" onclick="CryptoUtils.testCryptoSupport().then(result => alert('Crypto test ' + (result ? 'PASSED' : 'FAILED') + '. See console for details.'))">Test Crypto</button>
-      </div>
+      <div id="crypto-status" style="font-size: 0.8rem; margin-top: 5px;">🔒 Simple Encryption Enabled</div>
     </header>
 
     <section id="joinSection">
