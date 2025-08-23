@@ -501,14 +501,15 @@ socket.on('private_message', addPrivateMessage);
 // Handler for encrypted private messages with OpenPGP
 socket.on('encrypted_private_message', async (msg) => {
   try {
-    const { from, to, encryptedContent, ts, messageId } = msg;
+    const { from, to, encryptedContent, ts, messageId, mixed } = msg;
     
     console.log('Received encrypted private message:', {
       from: from?.name || 'Unknown',
       to: to?.name || 'Unknown',
       hasEncryptedContent: !!encryptedContent,
       messageId,
-      timestamp: ts
+      timestamp: ts,
+      mixnetProcessed: !!mixed
     });
     
     // Only decrypt if we have keys and there's encrypted content for us
@@ -526,7 +527,8 @@ socket.on('encrypted_private_message', async (msg) => {
           to,
           text: decryptedText,
           ts,
-          encrypted: true
+          encrypted: true,
+          mixed: !!mixed // Pass the mixnet flag to the display function
         });
       } catch (decryptError) {
         console.error('Private message decryption error:', decryptError);
@@ -537,7 +539,8 @@ socket.on('encrypted_private_message', async (msg) => {
           to,
           text: `[Decryption failed - ${decryptError.message}]`,
           ts,
-          encrypted: true
+          encrypted: true,
+          mixed: !!mixed // Preserve mixnet flag even for failed decryption
         });
       }
     } else {
@@ -558,7 +561,8 @@ socket.on('encrypted_private_message', async (msg) => {
         to: msg.to,
         text: '[Error processing encrypted message]',
         ts: msg.ts || Date.now(),
-        encrypted: true
+        encrypted: true,
+        mixed: !!msg.mixed // Preserve mixnet flag even on general errors
       });
     }
   }
@@ -576,13 +580,14 @@ socket.on('private_history', ({ with: user, messages }) => {
 // Handler for encrypted group messages
 socket.on('encrypted_group_message', async (msg) => {
   try {
-    const { user, encryptedContent, messageId, ts } = msg;
+    const { user, encryptedContent, messageId, ts, mixed } = msg;
     
     console.log('Received encrypted group message event:', {
       from: user?.name || 'Unknown',
       hasEncryptedContent: !!encryptedContent,
       messageId,
-      timestamp: ts
+      timestamp: ts,
+      mixnetProcessed: !!mixed
     });
     
     // Only decrypt if we have keys and there's encrypted content for us
@@ -600,7 +605,8 @@ socket.on('encrypted_group_message', async (msg) => {
           text: decryptedText,
           ts,
           encrypted: true,
-          messageId
+          messageId,
+          mixed: !!mixed // Pass the mixnet flag to the display function
         });
       } catch (decryptError) {
         console.error('Group message decryption error:', decryptError);
@@ -628,12 +634,15 @@ socket.on('encrypted_group_message', async (msg) => {
 });
 
 // Function to display encrypted group messages in the main chat
-function addEncryptedGroupMessage({ user, text, ts, encrypted = true, messageId }) {
+function addEncryptedGroupMessage({ user, text, ts, encrypted = true, messageId, mixed = false }) {
   const div = document.createElement('div');
   const time = new Date(ts).toLocaleTimeString();
   
   // Add message-specific classes
-  div.className = 'message mixed';  // Add 'mixed' class to indicate mixnet processing
+  div.className = 'message';  // Base class
+  if (mixed) {
+    div.classList.add('mixed');  // Only add if mixnet processed successfully
+  }
   if (encrypted) {
     div.classList.add('encrypted');
   }
@@ -666,7 +675,7 @@ function addSystem(text) {
   messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
-function addPrivateMessage({ from, to, text, ts, encrypted = false }) {
+function addPrivateMessage({ from, to, text, ts, encrypted = false, mixed = false }) {
   // Safety check for other user
   const other = currentUser && from.id === currentUser.id ? to : from;
   if (!other || !other.id) {
@@ -690,8 +699,13 @@ function addPrivateMessage({ from, to, text, ts, encrypted = false }) {
   const div = document.createElement('div');
   const time = new Date(ts).toLocaleTimeString();
   
-  // Add 'mixed' class to indicate mixnet processing for all private messages
-  div.className = 'private-message mixed';
+  // Add base class
+  div.className = 'private-message';
+  
+  // Only add mixed class if message was processed by mixnet
+  if (mixed) {
+    div.classList.add('mixed');
+  }
   
   // Mark encrypted messages
   if (encrypted) {

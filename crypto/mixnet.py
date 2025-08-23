@@ -178,7 +178,8 @@ class MixnetManager:
                     'encryptedContent': msg['encrypted'],
                     'user': msg['user_data'],
                     'messageId': msg['message_id'],
-                    'ts': int(time.time() * 1000)
+                    'ts': int(time.time() * 1000),
+                    'mixed': True  # Flag indicating successful mixnet processing
                 }, room=msg['recipient'])
             
             # Handle private messages
@@ -189,7 +190,8 @@ class MixnetManager:
                     'from': msg['user_data']['from'],
                     'to': msg['user_data']['to'],
                     'messageId': msg['message_id'],
-                    'ts': int(time.time() * 1000)
+                    'ts': int(time.time() * 1000),
+                    'mixed': True  # Flag indicating successful mixnet processing
                 }, room=msg['recipient'])
 
 
