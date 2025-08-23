@@ -28,12 +28,18 @@ const addOptionBtn = $('#addOption');
 const createPollBtn = $('#createPollBtn');
 const pollList = $('#pollList');
 
-// Function to update crypto UI status (simplified)
-function updateEncryptionStatus() {
-  const joinEncStatus = document.getElementById('join-encryption-status');
-  if (joinEncStatus) {
-    joinEncStatus.innerHTML = '🔒 End-to-End Encryption Enabled';
-    joinEncStatus.style.color = '#28a745'; // green
+// Function to update security status in the info panel
+function updateSecurityStatus() {
+  // Update encryption status - always green for active features
+  const encryptionStatusEl = document.getElementById('encryptionStatus');
+  if (encryptionStatusEl) {
+    encryptionStatusEl.style.color = '#28a745'; // Always green
+  }
+  
+  // Update mixnet status - always green
+  const mixnetStatusEl = document.getElementById('mixnetStatus');
+  if (mixnetStatusEl) {
+    mixnetStatusEl.style.color = '#28a745'; // Always green
   }
 }
 
@@ -450,14 +456,8 @@ socket.on('joined', async (state) => {
     pollList.innerHTML = '';
     state.polls.forEach(renderPoll);
     
-    // Show encryption status - set it early for later display
-    if (myKeyPair) {
-      // Update the join-encryption-status element
-      const joinEncStatus = document.getElementById('join-encryption-status');
-      if (joinEncStatus) {
-        joinEncStatus.innerHTML = '🔒 End-to-End Encryption Enabled';
-      }
-    }
+        // Update security panel
+        updateSecurityStatus();
   } catch (error) {
     console.error('Error during join setup:', error);
   }
@@ -818,6 +818,45 @@ function addEncryptionStyles() {
       font-size: 0.85rem;
       color: #28a745;
     }
+    
+    /* Security info panel styling */
+    .security-info-panel {
+      position: fixed;
+      top: 10px;
+      right: 10px;
+      background-color: #f8f9fa;
+      border: 1px solid #dee2e6;
+      border-radius: 4px;
+      padding: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      z-index: 1000;
+    }
+
+    .security-info-header {
+      font-weight: bold;
+      margin-bottom: 5px;
+      font-size: 0.85rem;
+      color: #495057;
+      text-align: center;
+      border-bottom: 1px solid #dee2e6;
+      padding-bottom: 3px;
+    }
+
+    .security-feature {
+      display: flex;
+      align-items: center;
+      margin: 5px 0;
+      font-size: 0.8rem;
+      color: #28a745;
+    }
+
+    .security-icon {
+      margin-right: 5px;
+    }
+
+    .security-text {
+      flex: 1;
+    }
   `;
   document.head.appendChild(style);
 }
@@ -830,30 +869,8 @@ window.addEventListener('load', () => {
   // Add encryption styles
   addEncryptionStyles();
 
-  // Add mixnet info message
-  setTimeout(() => {
-    const chatSection = document.getElementById('chatSection');
-    if (chatSection) {
-      const mixnetInfo = document.createElement('div');
-      mixnetInfo.className = 'mixnet-info';
-      mixnetInfo.innerHTML = '🔀 Messages are mixed for enhanced privacy';
-      mixnetInfo.style.fontSize = '0.8rem';
-      mixnetInfo.style.color = '#6c757d';
-      mixnetInfo.style.padding = '5px';
-      mixnetInfo.style.textAlign = 'center';
-      mixnetInfo.style.marginTop = '10px';
-      mixnetInfo.style.backgroundColor = '#f8f9fa';
-      mixnetInfo.style.borderRadius = '4px';
-      
-      // Insert after the status element
-      const statusEl = document.getElementById('status');
-      if (statusEl && statusEl.parentNode) {
-        statusEl.parentNode.insertBefore(mixnetInfo, statusEl.nextSibling);
-      } else {
-        chatSection.appendChild(mixnetInfo);
-      }
-    }
-  }, 1000); // Slight delay to ensure DOM is ready
+  // Update security status panel
+  updateSecurityStatus();
   
   // Enhanced debug logs for socket connection
   console.log("Socket.IO client initialized");
