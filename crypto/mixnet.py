@@ -40,6 +40,8 @@ class MixNode:
         Returns:
             bool: True if message was added to the pool
         """
+        message_id = message.get('message_id', 'unknown')
+        print(f"[{self.name}] Adding message {message_id} to pool (current pool size: {len(self.message_pool)})")
         self.message_pool.append(message)
         return True
            
@@ -51,23 +53,36 @@ class MixNode:
             list: Processed messages or empty list if batch size not reached
         """
         if len(self.message_pool) < self.batch_size:
+            # No logging for empty/insufficient message pools
             return []
                
         # Take a batch of messages
         batch = self.message_pool[:self.batch_size]
         self.message_pool = self.message_pool[self.batch_size:]
+        
+        message_ids = [msg.get('message_id', 'unknown') for msg in batch]
+        print(f"[{self.name}] Processing batch of {len(batch)} messages: {message_ids}")
            
         # Shuffle the batch to break correlation
         random.shuffle(batch)
+        print(f"[{self.name}] Batch shuffled")
            
         # Apply random delays with minimum base delay for privacy protection
         processed = []
         base_delay = 10  # Minimum 10ms base delay for all messages for minimal anonymity
         for message in batch:
+            # Track node processing history
+            if 'processed_by_nodes' not in message:
+                message['processed_by_nodes'] = []
+            message['processed_by_nodes'].append(self.name)
+            
             # Add processing metadata with base delay + small random component
             message['delay'] = base_delay + random.randint(0, self.max_delay_ms - base_delay)
             message['processed_by'] = self.name
             processed.append(message)
+            
+            message_id = message.get('message_id', 'unknown')
+            print(f"[{self.name}] Processed message {message_id} with delay {message['delay']}ms (node history: {message['processed_by_nodes']})")
                
         return processed
 
@@ -138,25 +153,64 @@ class MixnetManager:
     def process_messages(self):
         """
         Process messages through the cascade of mix nodes.
-        
-        For the first stage, this only processes through a single node.
-        Later stages will implement full cascade mixing.
         """
-        if not self.nodes or self.processing:
+        if not self.nodes:
+            print("ERROR: No mix nodes configured in mixnet")
             return
-           
+            
+        if self.processing:
+            return
+        
+        # Check if any node has messages to process
+        has_messages = any(len(node.message_pool) > 0 for node in self.nodes)
+        
+        # Skip all logging if no messages to process
+        if not has_messages:
+            return
+        
         self.processing = True
-           
+        
         try:
-            # Process through the first (and currently only) node
+            print("\n--- Starting mixnet processing cycle ---")
+            
+            # Start with the first node
+            print(f"Processing through first node ({self.nodes[0].name})...")
             messages = self.nodes[0].process_batch()
-               
-            # For future stages, additional nodes will be used here
-               
-            # Deliver processed messages
-            self._deliver_messages(messages)
+            if not messages:
+                print(f"No messages from first node ({self.nodes[0].name}) meet batch size requirement")
+                return
+            
+            print(f"First node processed {len(messages)} messages")
+            
+            # Pass through subsequent nodes in cascade
+            for i, node in enumerate(self.nodes[1:], 1):
+                print(f"Processing through node {i+1}/{len(self.nodes)} ({node.name})...")
+                
+                if not messages:  # No messages from previous node
+                    print(f"No messages to process in node {node.name}, breaking cascade")
+                    break
+                    
+                # Add all messages to next node
+                for msg in messages:
+                    node.add_message(msg)
+                    
+                # Process through this node
+                messages = node.process_batch()
+                print(f"Node {node.name} output {len(messages)} messages")
+            
+            if messages:
+                print(f"Final output: {len(messages)} messages completed full mixnet cascade")
+                # Deliver processed messages (only those that made it through all nodes)
+                self._deliver_messages(messages)
+            else:
+                print("WARNING: No messages completed the full mixnet cascade")
+                
+            print("--- Mixnet processing cycle complete ---\n")
+            
         except Exception as e:
-            print(f"Error in mixnet processing: {e}")
+            print(f"ERROR in mixnet processing: {e}")
+            import traceback
+            print(traceback.format_exc())  # Print full stack trace for debugging
         finally:
             self.processing = False
                
@@ -168,31 +222,49 @@ class MixnetManager:
             messages (list): List of processed messages to deliver
         """
         for msg in messages:
+            message_id = msg.get('message_id', 'unknown')
+            
+            # Verify this message has gone through all nodes
+            processed_nodes = msg.get('processed_by_nodes', [])
+            all_node_names = [node.name for node in self.nodes]
+            fully_mixed = all(node_name in processed_nodes for node_name in all_node_names)
+            
+            if not fully_mixed:
+                print(f"WARNING: Message {message_id} did not pass through all mix nodes.")
+                print(f"  - Processed by: {processed_nodes}")
+                print(f"  - Required nodes: {all_node_names}")
+                # Continue delivery but without mixed flag
+            
             # Add random delay before delivery based on mix node processing
             self.socketio.sleep(msg['delay'] / 1000.0)
-               
+            
+            message_type = msg['type']
+            recipient_id = msg['recipient']
+            
+            print(f"Delivering {message_type} message {message_id} to recipient {recipient_id}")
+            print(f"  - Processed by nodes: {processed_nodes}")
+            print(f"  - Fully mixed: {fully_mixed}")
+            
             # Handle group messages
-            if msg['type'] == 'group':
-                # Emit group message using existing format
+            if message_type == 'group':
                 self.socketio.emit('encrypted_group_message', {
                     'encryptedContent': msg['encrypted'],
                     'user': msg['user_data'],
-                    'messageId': msg['message_id'],
+                    'messageId': message_id,
                     'ts': int(time.time() * 1000),
-                    'mixed': True  # Flag indicating successful mixnet processing
-                }, room=msg['recipient'])
+                    'mixed': fully_mixed  # Only true if processed by all nodes
+                }, room=recipient_id)
             
             # Handle private messages
-            elif msg['type'] == 'private':
-                # Emit private message using existing format
+            elif message_type == 'private':
                 self.socketio.emit('encrypted_private_message', {
                     'encryptedContent': msg['encrypted'],
                     'from': msg['user_data']['from'],
                     'to': msg['user_data']['to'],
-                    'messageId': msg['message_id'],
+                    'messageId': message_id,
                     'ts': int(time.time() * 1000),
-                    'mixed': True  # Flag indicating successful mixnet processing
-                }, room=msg['recipient'])
+                    'mixed': fully_mixed  # Only true if processed by all nodes
+                }, room=recipient_id)
 
 
 # Keep original classes for backward compatibility

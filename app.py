@@ -42,8 +42,11 @@ user_keys = {}  # id -> publicKey (OpenPGP format)
 
 # Initialize mixnet for anonymous message delivery
 mixnet_manager = MixnetManager(socketio)
-mix_node1 = MixNode("node1", batch_size=2, max_delay_ms=50)  # Reduced batch size and max delay for better conversation flow
+mix_node1 = MixNode("node1", batch_size=2, max_delay_ms=50)  # First mix node
+mix_node2 = MixNode("node2", batch_size=2, max_delay_ms=75)  # Second mix node with slightly different delay
 mixnet_manager.add_node(mix_node1)
+mixnet_manager.add_node(mix_node2)
+print(f"Mixnet initialized with {len(mixnet_manager.nodes)} nodes: {[node.name for node in mixnet_manager.nodes]}")
 
 # Initialize background mixnet processing
 def start_mixnet_processing():
@@ -59,7 +62,7 @@ def process_mixnet_continuously():
             mixnet_manager.process_messages()
         except Exception as e:
             print(f"Error in mixnet processing task: {e}")
-        socketio.sleep(0.05)  # Check more frequently (every 50ms) for responsive message processing
+        socketio.sleep(0.1)  # Check less frequently (every 100ms) to reduce log noise
 
 def dm_key(id1, id2):
     """Generate a consistent key for private messages between two users"""
