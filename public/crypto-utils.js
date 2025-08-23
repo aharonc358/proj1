@@ -177,20 +177,24 @@ document.addEventListener('DOMContentLoaded', () => {
       .then(success => {
         console.log("OpenPGP test result:", success ? "PASSED" : "FAILED");
         
-        // Update crypto status display
+        // Update crypto status display - only show warnings
         const cryptoStatus = document.getElementById('crypto-status');
         if (cryptoStatus) {
-          if (success) {
-            cryptoStatus.textContent = '🔒 OpenPGP Encryption Enabled';
-            cryptoStatus.style.color = '#28a745'; // green
-          } else {
-            cryptoStatus.textContent = '⚠️ OpenPGP Encryption Failed';
+          if (!success) {
+            cryptoStatus.textContent = '⚠️ Encryption Failed';
             cryptoStatus.style.color = '#dc3545'; // red
           }
+          // Leave the element empty on success
         }
       })
       .catch(error => {
         console.error("Error during OpenPGP test:", error);
+        // Show errors in crypto status
+        const cryptoStatus = document.getElementById('crypto-status');
+        if (cryptoStatus) {
+          cryptoStatus.textContent = '⚠️ Encryption Error';
+          cryptoStatus.style.color = '#dc3545'; // red
+        }
       });
   }, 500);
 });

@@ -32,7 +32,7 @@ const pollList = $('#pollList');
 function updateEncryptionStatus() {
   const joinEncStatus = document.getElementById('join-encryption-status');
   if (joinEncStatus) {
-    joinEncStatus.innerHTML = '🔒 OpenPGP Encryption Enabled';
+    joinEncStatus.innerHTML = '🔒 End-to-End Encryption Enabled';
     joinEncStatus.style.color = '#28a745'; // green
   }
 }
@@ -77,7 +77,7 @@ function openPrivateChat(user, emit = true) {
     chat.innerHTML = `
       <div class="header">
         <span class="title">${escapeHtml(user.name)}</span>
-        <span class="encryption-status">🔒 OpenPGP Encrypted</span>
+        <span class="encryption-status">🔒 Encrypted</span>
         <button class="close">&times;</button>
       </div>
       <div class="messages"></div>
@@ -335,7 +335,7 @@ socket.on('joined', async (state) => {
       // Update the join-encryption-status element
       const joinEncStatus = document.getElementById('join-encryption-status');
       if (joinEncStatus) {
-        joinEncStatus.innerHTML = '🔒 OpenPGP End-to-End Encryption Enabled';
+        joinEncStatus.innerHTML = '🔒 End-to-End Encryption Enabled';
       }
     }
   } catch (error) {
@@ -374,7 +374,7 @@ socket.on('user_key_updated', (user) => {
     if (chat) {
       const statusElem = chat.querySelector('.encryption-status');
       if (statusElem) {
-        statusElem.textContent = '🔒 OpenPGP Encrypted';
+        statusElem.textContent = '🔒 Encrypted';
         statusElem.style.color = '#28a745'; // green
       }
     }
