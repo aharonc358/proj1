@@ -11,7 +11,7 @@ from collections import defaultdict
 
 # Import our models
 from models.user import User
-from models.message import Message, PrivateMessage, EncryptedMessage, EncryptedPrivateMessage
+from models.message import Message, PrivateMessage, EncryptedMessage, EncryptedPrivateMessage, EncryptedGroupMessage
 from crypto.elgamal import ElGamalCrypto
 
 app = Flask(__name__)
@@ -296,38 +296,115 @@ def handle_user_key_update(data):
 # Add handler for encrypted private messages
 @socketio.on('send_encrypted_private_message')
 def handle_encrypted_private_message(data):
-    """Handle encrypted private messages between users."""
+    """Handle encrypted private messages between users with per-recipient encryption."""
     socket_id = request.sid
     from_user = users.get(socket_id)
     if not from_user:
+        print("Error: Sender user not found")
         return
     
     to_user_id = data.get('to')
-    encrypted_content = data.get('encryptedContent')
+    encrypted_contents = data.get('encryptedContents', {})
+    message_id = data.get('messageId')
+    
+    # Support both old format (encryptedContent) and new format (encryptedContents)
+    if not encrypted_contents and data.get('encryptedContent'):
+        encrypted_contents = {to_user_id: data.get('encryptedContent')}
     
     to_user = users.get(to_user_id)
-    if not to_user or not encrypted_content:
+    if not to_user or not encrypted_contents:
+        print("Error: Recipient not found or no encrypted contents")
         return
     
-    # Create encrypted message
-    msg = EncryptedPrivateMessage(from_user.to_dict(), to_user.to_dict(), encrypted_content)
-    msg_dict = msg.to_dict()
+    print(f"Processing encrypted private message from {from_user.name} to {to_user.name}")
     
-    # Store in private messages history
-    key = dm_key(from_user.id, to_user.id)
-    hist = private_messages.get(key, [])
-    hist.append(msg_dict)
+    try:
+        # Create base encrypted message with recipient's content
+        recipient_content = encrypted_contents.get(to_user_id, '')
+        msg = EncryptedPrivateMessage(from_user.to_dict(), to_user.to_dict(), recipient_content)
+        msg_dict = msg.to_dict()
+        
+        # Add message ID if provided
+        if message_id:
+            msg_dict['messageId'] = message_id
+        
+        # Store in private messages history (with recipient's encrypted version)
+        key = dm_key(from_user.id, to_user.id)
+        hist = private_messages.get(key, [])
+        hist.append(msg_dict)
+        
+        if len(hist) > 200:
+            hist.pop(0)  # simple cap
+        
+        private_messages[key] = hist
+        
+        # Send personalized encrypted messages to each user
+        for user_id, encrypted_content in encrypted_contents.items():
+            user = next((u for u in users.values() if u.id == user_id), None)
+            if user:
+                # Create a personalized copy of the message with the user-specific encryption
+                personal_msg = msg_dict.copy()
+                personal_msg['encryptedContent'] = encrypted_content
+                emit('encrypted_private_message', personal_msg, room=user.id)
+                print(f"Sent encrypted content to {user.name}")
+        
+        print(f"Encrypted private message sent from {from_user.name} to {to_user.name}")
+    except Exception as e:
+        print(f"Error processing encrypted private message: {e}")
+
+
+# Add handler for encrypted group messages
+@socketio.on('send_encrypted_group_message')
+def handle_encrypted_group_message(data):
+    """Handle encrypted group messages with per-recipient encryption."""
+    socket_id = request.sid
+    from_user = users.get(socket_id)
+    if not from_user:
+        print("Error: Sender user not found")
+        return
     
-    if len(hist) > 200:
-        hist.pop(0)  # simple cap
+    encrypted_contents = data.get('encryptedContents', {})
+    message_id = data.get('messageId')
     
-    private_messages[key] = hist
+    if not encrypted_contents:
+        print("Error: No encrypted contents provided")
+        return
+        
+    if not message_id:
+        print("Error: No message ID provided")
+        return
     
-    # Send to both sender and recipient
-    for sid in [to_user_id, socket_id]:
-        emit('encrypted_private_message', msg_dict, room=sid)
+    print(f"Processing encrypted group message from {from_user.name}, message ID: {message_id}")
+    print(f"Recipients: {len(encrypted_contents)} users")
     
-    print(f"Encrypted message sent from {from_user.name} to {to_user.name}")
+    try:
+        # Create base message for history
+        msg = EncryptedGroupMessage(from_user.to_dict(), encrypted_contents, message_id)
+        msg_dict = msg.to_dict()
+        
+        # Store base message in history
+        messages.append(msg_dict)
+        if len(messages) > 200:
+            messages.pop(0)  # simple cap
+        
+        # Send individualized encrypted content to each recipient
+        for user_id, encrypted_content in encrypted_contents.items():
+            recipient = next((u for u in users.values() if u.id == user_id), None)
+            if recipient:
+                # Send the specific encrypted version to this recipient
+                individual_msg = msg_dict.copy()
+                individual_msg['encryptedContent'] = encrypted_content
+                print(f"Sending encrypted message to {recipient.name} (ID: {recipient.id})")
+                
+                # In Flask-SocketIO, for room parameter we need to use the socket ID itself as the room
+                emit('encrypted_group_message', individual_msg, room=recipient.id)
+                print(f"Emitted message to {recipient.name} with socket ID {recipient.id}")
+            else:
+                print(f"Warning: Recipient with ID {user_id} not found")
+        
+        print(f"Encrypted group message sent from {from_user.name} to {len(encrypted_contents)} recipients")
+    except Exception as e:
+        print(f"Error processing encrypted group message: {e}")
 
 if __name__ == '__main__':
     # Try multiple ports in case of conflicts

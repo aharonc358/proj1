@@ -206,3 +206,57 @@ class EncryptedPrivateMessage(PrivateMessage):
         msg.id = data.get('id', str(uuid.uuid4()))
         msg.ts = data.get('ts', int(time.time() * 1000))
         return msg
+
+
+class EncryptedGroupMessage(Message):
+    """
+    Represents an encrypted group message with multiple encrypted versions.
+    Each version is encrypted with a different recipient's public key.
+    """
+    
+    def __init__(self, user, encrypted_contents, message_id=None):
+        """
+        Initialize a new encrypted group message.
+        
+        Args:
+            user (dict): The user who sent the message
+            encrypted_contents (dict): Dictionary mapping userId -> encryptedContent
+            message_id (str, optional): Unique ID to identify related encrypted messages
+        """
+        super().__init__(user, "")  # Empty text, will be replaced with decrypted content
+        self.encrypted = True
+        self.encrypted_contents = encrypted_contents
+        self.message_id = message_id or str(uuid.uuid4())
+        
+    def to_dict(self):
+        """
+        Convert the message to a dictionary for JSON serialization.
+        
+        Returns:
+            dict: Dictionary representation of the message
+        """
+        data = super().to_dict()
+        data['encrypted'] = True
+        data['messageId'] = self.message_id
+        # Note: encryptedContent will be added per-recipient when sending
+        return data
+        
+    @classmethod
+    def from_dict(cls, data):
+        """
+        Create a message from a dictionary.
+        
+        Args:
+            data (dict): Dictionary representation of a message
+            
+        Returns:
+            EncryptedGroupMessage: A new EncryptedGroupMessage instance
+        """
+        msg = cls(
+            data['user'], 
+            data.get('encryptedContents', {}),
+            data.get('messageId')
+        )
+        msg.id = data.get('id', str(uuid.uuid4()))
+        msg.ts = data.get('ts', int(time.time() * 1000))
+        return msg

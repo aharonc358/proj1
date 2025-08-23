@@ -120,39 +120,53 @@ function openPrivateChat(user, emit = true) {
 // Function to send encrypted private messages with OpenPGP
 async function sendEncryptedPrivateMessage(userId, plainText) {
   try {
+    console.log("Preparing to send encrypted private message to", userId);
+    
+    // Generate unique message ID to identify related encrypted messages
+    const messageId = Date.now().toString() + '-' + Math.random().toString(36).substr(2, 9);
+    console.log("Generated message ID:", messageId);
+    
+    // Create a mapping of userId -> encryptedContent (just like group messages)
+    const encryptedContents = {};
+    
     // Get recipient's public key
     const recipientPublicKey = userPublicKeys.get(userId);
     if (!recipientPublicKey) {
       console.error('No OpenPGP public key available for user:', userId);
       alert('Cannot encrypt message: recipient public key not available');
-      return;
+      return false;
     }
     
-    // Encrypt the message using OpenPGP
-    console.log('Encrypting message with OpenPGP...');
-    const encryptedContent = await CryptoUtils.encrypt(recipientPublicKey, plainText);
-    console.log('Message encrypted successfully with OpenPGP');
+    // Encrypt for recipient
+    console.log('Encrypting private message for recipient...');
+    const recipientEncrypted = await CryptoUtils.encrypt(recipientPublicKey, plainText);
+    encryptedContents[userId] = recipientEncrypted;
+    console.log('Message encrypted successfully for recipient');
     
-    // Send to server
+    // Encrypt for ourselves too (if we have a key)
+    if (myKeyPair && myKeyPair.publicKey) {
+      console.log('Encrypting private message for ourselves...');
+      const senderEncrypted = await CryptoUtils.encrypt(myKeyPair.publicKey, plainText);
+      encryptedContents[currentUser.id] = senderEncrypted;
+      console.log('Message encrypted successfully for ourselves');
+    }
+    
+    console.log(`Private message encrypted for ${Object.keys(encryptedContents).length} recipients`);
+    
+    // Send to server with new format
     socket.emit('send_encrypted_private_message', {
       to: userId,
-      encryptedContent
+      encryptedContents,
+      messageId
     });
     
-    // Display in our own UI
-    const recipientUser = users.find(u => u.id === userId);
-    if (recipientUser) {
-      addPrivateMessage({
-        from: currentUser,
-        to: recipientUser,
-        text: plainText, // We show plaintext in our UI for messages we send
-        ts: Date.now(),
-        encrypted: true
-      });
-    }
+    console.log(`Private message sent with ID ${messageId}`);
+    return true;
+    
   } catch (error) {
     console.error('Failed to encrypt message with OpenPGP:', error);
     alert('Could not encrypt message: ' + (error.message || 'Unknown error'));
+    return false;
   }
 }
 
@@ -253,11 +267,95 @@ document.addEventListener('DOMContentLoaded', function() {
   attachJoinHandlers();
 });
 
-sendBtn.onclick = () => {
+// Function to send encrypted group messages
+async function sendEncryptedGroupMessage(plainText) {
+  try {
+    console.log("Preparing to send encrypted group message:", plainText);
+    
+    // Generate unique message ID to identify related encrypted messages
+    const messageId = Date.now().toString() + '-' + Math.random().toString(36).substr(2, 9);
+    console.log("Generated message ID:", messageId);
+    
+    // Create a mapping of userId -> encryptedContent
+    const encryptedContents = {};
+    
+    // Count how many users we can encrypt for
+    let encryptionPossibleCount = 0;
+    
+    // Log all users and their keys
+    console.log("Current users in room:", users.map(u => `${u.name} (${u.id})`));
+    console.log("Available public keys:", Array.from(userPublicKeys.keys()));
+    
+    // Encrypt for each user in the room (including ourselves)
+    for (const user of users) {
+      const publicKey = userPublicKeys.get(user.id);
+      
+      if (publicKey) {
+        console.log(`Encrypting message for ${user.name} (ID: ${user.id})`);
+        try {
+          // Encrypt the message using OpenPGP
+          const encryptedContent = await CryptoUtils.encrypt(publicKey, plainText);
+          encryptedContents[user.id] = encryptedContent;
+          console.log(`Successfully encrypted for ${user.name}`);
+          encryptionPossibleCount++;
+        } catch (encryptError) {
+          console.error(`Failed to encrypt for user ${user.name}:`, encryptError);
+          // Skip this user rather than stopping the entire process
+        }
+      } else {
+        console.warn(`No public key available for ${user.name} (ID: ${user.id})`);
+      }
+    }
+    
+    // Only proceed if we could encrypt for at least one recipient (including ourselves)
+    if (encryptionPossibleCount === 0) {
+      console.error('Could not encrypt message for any recipients');
+      alert('No encryption keys available. Message not sent.');
+      return false;
+    }
+    
+    console.log(`Sending encrypted group message to ${encryptionPossibleCount} recipients:`, {
+      messageId,
+      recipientIds: Object.keys(encryptedContents)
+    });
+    
+    // Send to server
+    socket.emit('send_encrypted_group_message', {
+      encryptedContents,
+      messageId
+    });
+    
+    console.log(`Group message sent to server with ID ${messageId}`);
+    
+    // We no longer add the message immediately to the UI
+    // Instead, we'll wait for the server to send it back through the socket
+    // This prevents duplicate messages and ensures proper message verification
+    
+    return true;
+    
+  } catch (error) {
+    console.error('Failed to encrypt group message:', error);
+    alert('Could not encrypt message: ' + (error.message || 'Unknown error'));
+    return false;
+  }
+}
+
+// Updated send button handler with encryption support
+sendBtn.onclick = async () => {
   const text = msgInput.value.trim();
   if (!text) return;
-  socket.emit('send_message', text);
-  msgInput.value = '';
+  
+  // If we have encryption keys and we're in the main chat, use encrypted group messaging
+  if (myKeyPair && userPublicKeys.size > 0) {
+    const success = await sendEncryptedGroupMessage(text);
+    if (success) {
+      msgInput.value = ''; // Only clear if successfully sent
+    }
+  } else {
+    // Fall back to unencrypted messaging if no keys available
+    socket.emit('send_message', text);
+    msgInput.value = '';
+  }
 };
 
 msgInput.addEventListener('keypress', (e) => {
@@ -403,68 +501,66 @@ socket.on('private_message', addPrivateMessage);
 // Handler for encrypted private messages with OpenPGP
 socket.on('encrypted_private_message', async (msg) => {
   try {
-    const { from, to, encryptedContent, ts } = msg;
+    const { from, to, encryptedContent, ts, messageId } = msg;
     
-    // Only decrypt if we're the recipient
-    if (currentUser && to.id === currentUser.id && myKeyPair && myKeyPair.privateKey) {
-      console.log('Received encrypted message, attempting to decrypt with OpenPGP...');
+    console.log('Received encrypted private message:', {
+      from: from?.name || 'Unknown',
+      to: to?.name || 'Unknown',
+      hasEncryptedContent: !!encryptedContent,
+      messageId,
+      timestamp: ts
+    });
+    
+    // Only decrypt if we have keys and there's encrypted content for us
+    if (currentUser && myKeyPair && myKeyPair.privateKey && encryptedContent) {
+      console.log(`Attempting to decrypt private message ${messageId || ''}`);
       
       try {
-        // Decrypt the message using OpenPGP
+        // Decrypt the message using our private key
         const decryptedText = await CryptoUtils.decrypt(myKeyPair.privateKey, encryptedContent);
-        console.log('OpenPGP decryption successful');
+        console.log('Private message decryption successful');
         
-        // Check for decryption errors indicated by special format
-        if (decryptedText && decryptedText.startsWith('[Decryption failed')) {
-          console.warn('OpenPGP decryption returned error:', decryptedText);
-          
-          // Show decryption error in UI
-          addPrivateMessage({
-            from,
-            to,
-            text: decryptedText,
-            ts,
-            encrypted: true
-          });
-        } else {
-          // Display the successfully decrypted message
-          addPrivateMessage({
-            from,
-            to,
-            text: decryptedText,
-            ts,
-            encrypted: true
-          });
-        }
+        // Display the successfully decrypted message
+        addPrivateMessage({
+          from,
+          to,
+          text: decryptedText,
+          ts,
+          encrypted: true
+        });
       } catch (decryptError) {
-        console.error('OpenPGP decryption error:', decryptError);
+        console.error('Private message decryption error:', decryptError);
         
         // Show error in UI
         addPrivateMessage({
-          from: msg.from,
-          to: msg.to,
-          text: `[OpenPGP decryption failed - ${decryptError.message}]`,
-          ts: msg.ts,
+          from,
+          to,
+          text: `[Decryption failed - ${decryptError.message}]`,
+          ts,
           encrypted: true
         });
       }
-    } else if (currentUser && from.id === currentUser.id) {
-      // This is a message we sent - already displayed in sendEncryptedPrivateMessage
-      console.log('Received confirmation of sent encrypted message');
     } else {
-      console.warn('Received encrypted message but cannot decrypt it (no keys available)');
+      console.warn('Received encrypted private message but cannot decrypt it:', {
+        hasCurrentUser: !!currentUser,
+        hasKeyPair: !!myKeyPair,
+        hasPrivateKey: !!(myKeyPair && myKeyPair.privateKey),
+        hasEncryptedContent: !!encryptedContent
+      });
     }
   } catch (error) {
-    console.error('Failed to process encrypted message:', error);
+    console.error('Failed to process encrypted private message:', error);
     
     // Show error in UI
-    addPrivateMessage({
-      from: msg.from,
-      to: msg.to,
-      text: '[Error processing encrypted message]',
-      ts: msg.ts,
-      encrypted: true
-    });
+    if (msg && msg.from && msg.to) {
+      addPrivateMessage({
+        from: msg.from,
+        to: msg.to,
+        text: '[Error processing encrypted message]',
+        ts: msg.ts || Date.now(),
+        encrypted: true
+      });
+    }
   }
 });
 socket.on('private_history', ({ with: user, messages }) => {
@@ -476,6 +572,91 @@ socket.on('private_history', ({ with: user, messages }) => {
   list.innerHTML = '';
   messages.forEach(addPrivateMessage);
 });
+
+// Handler for encrypted group messages
+socket.on('encrypted_group_message', async (msg) => {
+  try {
+    const { user, encryptedContent, messageId, ts } = msg;
+    
+    console.log('Received encrypted group message event:', {
+      from: user?.name || 'Unknown',
+      hasEncryptedContent: !!encryptedContent,
+      messageId,
+      timestamp: ts
+    });
+    
+    // Only decrypt if we have keys and there's encrypted content for us
+    if (currentUser && myKeyPair && myKeyPair.privateKey && encryptedContent) {
+      console.log(`Attempting to decrypt group message from ${user.name}, messageId: ${messageId}`);
+      
+      try {
+        // Decrypt the message using our private key
+        const decryptedText = await CryptoUtils.decrypt(myKeyPair.privateKey, encryptedContent);
+        console.log('Group message decryption successful:', decryptedText);
+        
+        // Display the successfully decrypted message with encryption indicator
+        addEncryptedGroupMessage({
+          user,
+          text: decryptedText,
+          ts,
+          encrypted: true,
+          messageId
+        });
+      } catch (decryptError) {
+        console.error('Group message decryption error:', decryptError);
+        
+        // Show error in UI
+        addEncryptedGroupMessage({
+          user,
+          text: `[Decryption failed - ${decryptError.message}]`,
+          ts,
+          encrypted: true,
+          messageId
+        });
+      }
+    } else {
+      console.warn('Received encrypted group message but cannot decrypt it (no keys available):', {
+        hasCurrentUser: !!currentUser,
+        hasKeyPair: !!myKeyPair,
+        hasPrivateKey: !!(myKeyPair && myKeyPair.privateKey),
+        hasEncryptedContent: !!encryptedContent
+      });
+    }
+  } catch (error) {
+    console.error('Failed to process encrypted group message:', error);
+  }
+});
+
+// Function to display encrypted group messages in the main chat
+function addEncryptedGroupMessage({ user, text, ts, encrypted = true, messageId }) {
+  const div = document.createElement('div');
+  const time = new Date(ts).toLocaleTimeString();
+  
+  // Add message-specific classes
+  div.className = 'message';
+  if (encrypted) {
+    div.classList.add('encrypted');
+  }
+  
+  // Add message ID for potential future use (like editing)
+  if (messageId) {
+    div.dataset.messageId = messageId;
+  }
+  
+  // Handle null/undefined text (failed decryption)
+  const safeText = text || "[Message could not be decrypted]";
+  
+  // Format the message content
+  if (currentUser && user.id === currentUser.id) {
+    div.innerHTML = `<span class="author">You:</span> ${escapeHtml(safeText)} <span class="time">${time}</span>`;
+  } else {
+    div.innerHTML = `<span class="author">${escapeHtml(user.name)}</span>: ${escapeHtml(safeText)} <span class="time">${time}</span>`;
+  }
+  
+  // Add to the message list and scroll to view
+  messagesEl.appendChild(div);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
 
 function addSystem(text) {
   const div = document.createElement('div');
