@@ -690,6 +690,9 @@ function addPrivateMessage({ from, to, text, ts, encrypted = false }) {
   const div = document.createElement('div');
   const time = new Date(ts).toLocaleTimeString();
   
+  // Add 'mixed' class to indicate mixnet processing for all private messages
+  div.className = 'private-message mixed';
+  
   // Mark encrypted messages
   if (encrypted) {
     div.classList.add('encrypted');
@@ -701,9 +704,9 @@ function addPrivateMessage({ from, to, text, ts, encrypted = false }) {
   // Set message content
   try {
     if (currentUser && from.id === currentUser.id) {
-      div.innerHTML = `<span class="author">You:</span> ${escapeHtml(safeText)} <span class="time">${time}</span>${encrypted ? ' 🔒' : ''}`;
+      div.innerHTML = `<span class="author">You:</span> ${escapeHtml(safeText)} <span class="time">${time}</span>`;
     } else {
-      div.innerHTML = `<span class="author">${escapeHtml(from?.name || 'Unknown')}:</span> ${escapeHtml(safeText)} <span class="time">${time}</span>${encrypted ? ' 🔒' : ''}`;
+      div.innerHTML = `<span class="author">${escapeHtml(from?.name || 'Unknown')}:</span> ${escapeHtml(safeText)} <span class="time">${time}</span>`;
     }
     
     // Add to chat
@@ -741,7 +744,7 @@ function addEncryptionStyles() {
       color: #28a745;
     }
     
-    .message.mixed:before {
+    .message.mixed:before, .private-message.mixed:before {
       content: "🔀";
       font-size: 12px;
       margin-right: 5px;
