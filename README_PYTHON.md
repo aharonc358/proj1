@@ -79,22 +79,6 @@ This application demonstrates a modern secure messaging platform with robust pri
    - Recipients decrypt using their private keys
    - Security indicators show encryption and mixing status
 
-## Security Considerations & Limitations
-
-- **In-Memory Storage**: This implementation uses in-memory storage and is intended for educational/demonstration purposes
-- **Trust Boundaries**: The server must be trusted for message delivery, though it cannot read message contents
-- **Mixnet Limitations**: Current implementation provides strong but not perfect anonymity (correlations still possible with very small user bases)
-- **Key Management**: Keys are generated per session and not persisted (no long-term identity verification)
-- **Message Persistence**: Cleared messages are removed from server memory but may persist in browser memory
-
-## Future Security Enhancements
-
-- **Onion Encryption for Mixnet**: Adding layered encryption to further enhance mixnet security
-- **Homomorphic Encryption for Polls**: Allow secure, private voting with encrypted tallying
-- **Private Information Retrieval**: Access information without revealing which data was accessed
-- **Perfect Forward Secrecy**: Session key rotation for stronger security over time
-- **Persistent Identity Verification**: Long-term identity verification through key continuity
-
 ## Project Structure
 
 ```
