@@ -42,10 +42,16 @@ user_keys = {}  # id -> publicKey (OpenPGP format)
 
 # Initialize mixnet for anonymous message delivery
 mixnet_manager = MixnetManager(socketio)
+
+# Configure three mix nodes with different parameters for diversity
 mix_node1 = MixNode("node1", batch_size=2, max_delay_ms=50)  # First mix node
-mix_node2 = MixNode("node2", batch_size=2, max_delay_ms=75)  # Second mix node with slightly different delay
+mix_node2 = MixNode("node2", batch_size=2, max_delay_ms=75)  # Second mix node with medium delay
+mix_node3 = MixNode("node3", batch_size=2, max_delay_ms=60)  # Third mix node with different delay
+
+# Add nodes to the mixnet manager in cascade order
 mixnet_manager.add_node(mix_node1)
 mixnet_manager.add_node(mix_node2)
+mixnet_manager.add_node(mix_node3)
 print(f"Mixnet initialized with {len(mixnet_manager.nodes)} nodes: {[node.name for node in mixnet_manager.nodes]}")
 
 # Initialize background mixnet processing
