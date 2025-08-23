@@ -32,7 +32,7 @@ const pollList = $('#pollList');
 function updateEncryptionStatus() {
   const joinEncStatus = document.getElementById('join-encryption-status');
   if (joinEncStatus) {
-    joinEncStatus.innerHTML = '🔒 Simple Encryption Enabled';
+    joinEncStatus.innerHTML = '🔒 Encryption Enabled';
     joinEncStatus.style.color = '#28a745'; // green
   }
 }

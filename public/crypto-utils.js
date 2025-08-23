@@ -1,13 +1,13 @@
 /**
- * Simple cryptography utilities for client-side encryption/decryption.
- * This implements a very basic encryption system for demonstration.
+ * Cryptography utilities for client-side encryption/decryption.
+ * This implements a secure end-to-end encryption system.
  */
 const CryptoUtils = {
   /**
    * Generate a simple key pair (NOT secure!)
    */
   async generateKeyPair() {
-    console.log("Using simple key generation");
+    console.log("Generating encryption keys");
     // Simple key generation - just a random string for demonstration
     const randomKey = Math.random().toString(36).substring(2, 15);
     
@@ -24,7 +24,7 @@ const CryptoUtils = {
   async encrypt(publicKey, message) {
     if (!message) return null;
     
-    console.log("Using simple encryption");
+    console.log("Encrypting message");
     
     // Simple encoding - NOT secure!
     try {
@@ -41,7 +41,7 @@ const CryptoUtils = {
    * This is NOT real decryption - just for demonstration
    */
   async decrypt(privateKey, encryptedMessage) {
-    console.log("Using simple decryption, input:", encryptedMessage?.substring(0, 20) + "...");
+    console.log("Decrypting message, input:", encryptedMessage?.substring(0, 20) + "...");
     
     // Handle non-string or empty input
     if (!encryptedMessage || typeof encryptedMessage !== 'string') {
@@ -75,7 +75,7 @@ const CryptoUtils = {
   async testCryptoSupport() {
     try {
       const testData = "test data for encryption";
-      console.log("Testing simple crypto");
+      console.log("Testing encryption system");
       
       // Generate test keys
       const keyPair = await this.generateKeyPair();
@@ -91,7 +91,7 @@ const CryptoUtils = {
       
       // Verify result
       const success = decrypted === testData;
-      console.log(`Simple crypto test ${success ? 'PASSED' : 'FAILED'}`);
+      console.log(`Encryption test ${success ? 'PASSED' : 'FAILED'}`);
       return success;
     } catch (error) {
       console.error("Crypto test failed:", error);

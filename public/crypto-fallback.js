@@ -2,7 +2,7 @@
  * This file is now deprecated - functionality moved to crypto-utils.js
  * Keeping this file for backward compatibility
  */
-console.log("Simple encryption is now implemented directly in crypto-utils.js");
+console.log("Encryption is now implemented directly in crypto-utils.js");
 
 // Define a no-op fallback for backward compatibility
 const CryptoFallback = {
