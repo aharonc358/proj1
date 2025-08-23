@@ -362,15 +362,22 @@ def handle_encrypted_private_message(data):
         
         private_messages[key] = hist
         
-        # Send personalized encrypted messages to each user
+        # Route personalized encrypted messages through mixnet for enhanced privacy
         for user_id, encrypted_content in encrypted_contents.items():
             user = next((u for u in users.values() if u.id == user_id), None)
             if user:
-                # Create a personalized copy of the message with the user-specific encryption
-                personal_msg = msg_dict.copy()
-                personal_msg['encryptedContent'] = encrypted_content
-                emit('encrypted_private_message', personal_msg, room=user.id)
-                print(f"Sent encrypted content to {user.name}")
+                print(f"Routing encrypted private message to {user.name} (ID: {user.id}) through mixnet")
+                # Add to mixnet instead of emitting directly
+                mixnet_manager.add_message(
+                    encrypted_content=encrypted_content,
+                    recipient_id=user.id,
+                    user_data={
+                        'from': from_user.to_dict(),
+                        'to': to_user.to_dict()
+                    },
+                    message_id=message_id or str(uuid.uuid4()),  # Ensure we have a message ID
+                    message_type='private'
+                )
         
         print(f"Encrypted private message sent from {from_user.name} to {to_user.name}")
     except Exception as e:

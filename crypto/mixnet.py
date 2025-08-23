@@ -171,12 +171,23 @@ class MixnetManager:
             # Add random delay before delivery based on mix node processing
             self.socketio.sleep(msg['delay'] / 1000.0)
                
-            # Currently only handling group messages
+            # Handle group messages
             if msg['type'] == 'group':
                 # Emit group message using existing format
                 self.socketio.emit('encrypted_group_message', {
                     'encryptedContent': msg['encrypted'],
                     'user': msg['user_data'],
+                    'messageId': msg['message_id'],
+                    'ts': int(time.time() * 1000)
+                }, room=msg['recipient'])
+            
+            # Handle private messages
+            elif msg['type'] == 'private':
+                # Emit private message using existing format
+                self.socketio.emit('encrypted_private_message', {
+                    'encryptedContent': msg['encrypted'],
+                    'from': msg['user_data']['from'],
+                    'to': msg['user_data']['to'],
                     'messageId': msg['message_id'],
                     'ts': int(time.time() * 1000)
                 }, room=msg['recipient'])
