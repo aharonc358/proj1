@@ -68,50 +68,72 @@ function renderUsers(list) {
 
 function openPrivateChat(user, emit = true) {
   let chat = privateChats.get(user.id);
-  if (!chat) {
-    const container = document.getElementById('privateChats');
-    chat = document.createElement('div');
-    chat.className = 'private-chat';
-    chat.dataset.id = user.id;
-    
-    chat.innerHTML = `
-      <div class="header">
-        <span class="title">${escapeHtml(user.name)}</span>
-        <span class="encryption-status">🔒 Encrypted</span>
-        <button class="close">&times;</button>
-      </div>
-      <div class="messages"></div>
-      <div class="composer">
-        <input class="pm-input" placeholder="Message ${escapeHtml(user.name)}" />
-        <button class="pm-send">Send</button>
-      </div>
-    `;
-    container.appendChild(chat);
-
+  
+  // If chat already exists, just focus it and don't re-request history
+  if (chat) {
+    // Focus the chat window instead of re-opening
     const input = chat.querySelector('.pm-input');
-    const sendBtn = chat.querySelector('.pm-send');
-    chat.querySelector('.close').onclick = () => {
-      chat.remove();
-      privateChats.delete(user.id);
-    };
+    if (input) input.focus();
     
-    // Always use encrypted messaging
-    sendBtn.onclick = async () => {
-      const text = input.value.trim();
-      if (!text) return;
-      
-      await sendEncryptedPrivateMessage(user.id, text);
-      input.value = '';
-    };
+    // Flash the window to draw attention
+    chat.style.animation = 'flash 0.5s';
+    setTimeout(() => {
+      chat.style.animation = '';
+    }, 500);
     
-    input.addEventListener('keypress', e => {
-      if (e.key === 'Enter') sendBtn.click();
-    });
-    
-    privateChats.set(user.id, chat);
-    input.focus();
+    // Don't emit open_private if chat already exists
+    return;
   }
   
+  // Create a new chat window
+  const container = document.getElementById('privateChats');
+  chat = document.createElement('div');
+  chat.className = 'private-chat';
+  chat.dataset.id = user.id;
+  
+  chat.innerHTML = `
+    <div class="header">
+      <span class="title">${escapeHtml(user.name)}</span>
+      <span class="encryption-status">🔒 Encrypted</span>
+      <button class="close">&times;</button>
+    </div>
+    <div class="messages"></div>
+    <div class="composer">
+      <input class="pm-input" placeholder="Message ${escapeHtml(user.name)}" />
+      <button class="pm-send">Send</button>
+    </div>
+  `;
+  container.appendChild(chat);
+
+  const input = chat.querySelector('.pm-input');
+  const sendBtn = chat.querySelector('.pm-send');
+  chat.querySelector('.close').onclick = () => {
+    // Tell server to clear history for this conversation
+    socket.emit('clear_private_history', { userId: user.id });
+    console.log(`Requested to clear private chat history with ${user.name}`);
+    
+    // Remove chat window from UI
+    chat.remove();
+    privateChats.delete(user.id);
+  };
+  
+  // Always use encrypted messaging
+  sendBtn.onclick = async () => {
+    const text = input.value.trim();
+    if (!text) return;
+    
+    await sendEncryptedPrivateMessage(user.id, text);
+    input.value = '';
+  };
+  
+  input.addEventListener('keypress', e => {
+    if (e.key === 'Enter') sendBtn.click();
+  });
+  
+  privateChats.set(user.id, chat);
+  input.focus();
+  
+  // Only emit open_private for new chats
   if (emit) {
     socket.emit('open_private', { to: user.id });
   }
@@ -739,6 +761,11 @@ function addPrivateMessage({ from, to, text, ts, encrypted = false, mixed = fals
 function addEncryptionStyles() {
   const style = document.createElement('style');
   style.textContent = `
+    @keyframes flash {
+      0%, 100% { background-color: transparent; }
+      50% { background-color: rgba(0, 123, 255, 0.2); }
+    }
+
     .encryption-status {
       color: #28a745;
       font-size: 0.8rem;

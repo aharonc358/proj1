@@ -210,6 +210,26 @@ def handle_open_private(data):
     emit('private_history', {'with': to_user.to_dict(), 'messages': hist}, room=socket_id)
     emit('private_history', {'with': from_user.to_dict(), 'messages': hist}, room=to_user_id)
 
+@socketio.on('clear_private_history')
+def handle_clear_private_history(data):
+    """Handle clearing private chat history."""
+    socket_id = request.sid
+    from_user = users.get(socket_id)
+    to_user_id = data.get('userId')
+    
+    if not from_user or not to_user_id:
+        print("Invalid request to clear private history")
+        return
+        
+    # Clear the history for this conversation pair
+    key = dm_key(from_user.id, to_user_id)
+    if key in private_messages:
+        message_count = len(private_messages[key])
+        private_messages[key] = []
+        print(f"Cleared {message_count} messages in private chat between {from_user.name} and {users.get(to_user_id).name if users.get(to_user_id) else to_user_id}")
+    else:
+        print(f"No messages found to clear for conversation {key}")
+
 @socketio.on('create_poll')
 def handle_create_poll(data):
     """Handle creation of a new poll"""
