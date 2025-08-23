@@ -107,10 +107,12 @@ def handle_join(data):
     user_dicts = [u.to_dict() for u in users.values() if u.in_room]
     
     # Send initial state
+    # Send an empty message array to new users for a clean slate
+    # This prevents showing unreadable encrypted messages from before they joined
     emit('joined', {
         'self': user.to_dict(),
         'users': user_dicts,
-        'messages': messages,
+        'messages': [],  # Empty array instead of full message history
         'polls': list(polls.values())
     })
     
