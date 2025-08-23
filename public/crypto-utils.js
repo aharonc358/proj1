@@ -1,47 +1,90 @@
 /**
- * Cryptography utilities for client-side encryption/decryption.
- * This implements a secure end-to-end encryption system.
+ * OpenPGP-based cryptography utilities for client-side encryption/decryption.
+ * This implements secure end-to-end encryption using the OpenPGP standard.
  */
 const CryptoUtils = {
   /**
-   * Generate a simple key pair (NOT secure!)
+   * Generate a new OpenPGP key pair for secure encryption.
+   * 
+   * @returns {Promise<{publicKey: string, privateKey: Object}>} Key pair
    */
   async generateKeyPair() {
-    console.log("Generating encryption keys");
-    // Simple key generation - just a random string for demonstration
-    const randomKey = Math.random().toString(36).substring(2, 15);
+    console.log("Generating OpenPGP encryption keys...");
     
-    return {
-      publicKey: `SIMPLE-${randomKey}`,
-      privateKey: randomKey
-    };
-  },
-  
-  /**
-   * Simple "encryption" using Base64 encoding
-   * This is NOT real encryption - just for demonstration
-   */
-  async encrypt(publicKey, message) {
-    if (!message) return null;
-    
-    console.log("Encrypting message");
-    
-    // Simple encoding - NOT secure!
     try {
-      const encoded = btoa(message);
-      return `ENC-${encoded}`;
+      // Check if OpenPGP.js is available
+      if (typeof openpgp === 'undefined') {
+        throw new Error("OpenPGP.js library not loaded");
+      }
+      
+      // Generate a unique name based on user session
+      const userId = 'User_' + Math.floor(Math.random() * 1000000).toString();
+      const email = `${userId}@securechat.example`;
+      
+      // Generate OpenPGP key pair
+      // Note: ElGamal is preferred for encryption capability
+      const { privateKey, publicKey } = await openpgp.generateKey({
+        type: 'ecc', // ECC is more modern than RSA or ElGamal but widely supported
+        curve: 'curve25519', // Modern, secure curve
+        userIDs: [{ name: userId, email: email }],
+        format: 'armored'
+      });
+      
+      console.log("OpenPGP key pair generated successfully");
+      
+      // Return the key pair in the expected format
+      return {
+        publicKey: publicKey,
+        privateKey: privateKey
+      };
     } catch (error) {
-      console.error("Encryption error:", error);
-      throw new Error("Failed to encrypt message");
+      console.error("Failed to generate OpenPGP key pair:", error);
+      throw error;
     }
   },
   
   /**
-   * Simple "decryption" using Base64 decoding
-   * This is NOT real decryption - just for demonstration
+   * Encrypt a message with recipient's public key using OpenPGP.
+   * 
+   * @param {string} publicKey - Recipient's public key in OpenPGP format
+   * @param {string} message - Plain text message to encrypt
+   * @returns {Promise<string>} - Encrypted message
+   */
+  async encrypt(publicKey, message) {
+    if (!message) return null;
+    if (!publicKey) throw new Error("Public key is required for encryption");
+    
+    console.log("Encrypting message with OpenPGP...");
+    
+    try {
+      // Parse the recipient's public key
+      const publicKeyObj = await openpgp.readKey({ armoredKey: publicKey });
+      
+      // Encrypt the message
+      const encrypted = await openpgp.encrypt({
+        message: await openpgp.createMessage({ text: message }),
+        encryptionKeys: publicKeyObj
+      });
+      
+      // Return encrypted message with our prefix to identify format
+      console.log("Message encrypted successfully");
+      return `PGP-${encrypted}`;
+    } catch (error) {
+      console.error("OpenPGP encryption error:", error);
+      throw new Error("Failed to encrypt message: " + error.message);
+    }
+  },
+  
+  /**
+   * Decrypt a message with user's private key using OpenPGP.
+   * 
+   * @param {string} privateKey - User's private key in OpenPGP format
+   * @param {string} encryptedMessage - Encrypted message
+   * @returns {Promise<string>} - Decrypted message
    */
   async decrypt(privateKey, encryptedMessage) {
-    console.log("Decrypting message, input:", encryptedMessage?.substring(0, 20) + "...");
+    console.log("Decrypting message with OpenPGP, input:", 
+      encryptedMessage?.substring(0, 20) + "...");
     
     // Handle non-string or empty input
     if (!encryptedMessage || typeof encryptedMessage !== 'string') {
@@ -51,63 +94,103 @@ const CryptoUtils = {
     
     try {
       // Check if this is our format
-      if (!encryptedMessage.startsWith('ENC-')) {
+      if (!encryptedMessage.startsWith('PGP-')) {
         console.warn("Unknown message format:", encryptedMessage.substring(0, 10));
         return "[Unknown message format]";
       }
       
-      // Extract the Base64 part (after ENC-)
-      const base64 = encryptedMessage.substring(4); // Skip "ENC-"
+      // Extract the OpenPGP message (after PGP-)
+      const pgpMessage = encryptedMessage.substring(4); // Skip "PGP-"
       
-      // Simple decoding
-      const decoded = atob(base64);
-      console.log("Decryption successful:", decoded);
-      return decoded;
+      // Parse the private key
+      const privateKeyObj = await openpgp.readPrivateKey({ armoredKey: privateKey });
+      
+      // Decrypt the message
+      const message = await openpgp.readMessage({ armoredMessage: pgpMessage });
+      const decrypted = await openpgp.decrypt({
+        message: message,
+        decryptionKeys: privateKeyObj
+      });
+      
+      // Return the decrypted text
+      console.log("Decryption successful");
+      return decrypted.data;
+      
     } catch (error) {
-      console.error("Decryption error:", error);
-      return "[Could not decrypt message]";
+      console.error("OpenPGP decryption error:", error);
+      return `[Decryption failed - ${error.message}]`;
     }
   },
   
   /**
-   * Test if encryption is working
+   * Test if OpenPGP encryption is working properly.
+   * 
+   * @returns {Promise<boolean>} - Whether the test passed
    */
   async testCryptoSupport() {
     try {
-      const testData = "test data for encryption";
-      console.log("Testing encryption system");
+      console.log("Testing OpenPGP encryption system...");
+      
+      // Check if OpenPGP.js is available
+      if (typeof openpgp === 'undefined') {
+        console.error("OpenPGP.js library not loaded");
+        return false;
+      }
+      
+      // Test data
+      const testData = "This is a test message for OpenPGP encryption";
       
       // Generate test keys
+      console.log("Generating test keys...");
       const keyPair = await this.generateKeyPair();
-      console.log("Generated keys:", keyPair);
+      console.log("Test keys generated");
       
       // Test encryption
+      console.log("Encrypting test message...");
       const encrypted = await this.encrypt(keyPair.publicKey, testData);
-      console.log("Encryption result:", encrypted);
+      console.log("Test message encrypted:", encrypted?.substring(0, 30) + "...");
       
       // Test decryption
+      console.log("Decrypting test message...");
       const decrypted = await this.decrypt(keyPair.privateKey, encrypted);
-      console.log("Decryption result:", decrypted);
+      console.log("Test message decrypted:", decrypted);
       
       // Verify result
       const success = decrypted === testData;
-      console.log(`Encryption test ${success ? 'PASSED' : 'FAILED'}`);
+      console.log(`OpenPGP test ${success ? 'PASSED' : 'FAILED'}`);
       return success;
+      
     } catch (error) {
-      console.error("Crypto test failed:", error);
+      console.error("OpenPGP test failed:", error);
       return false;
     }
   }
 };
 
-// Run a test to make sure encryption works
+// Run a test to make sure OpenPGP encryption works
 document.addEventListener('DOMContentLoaded', () => {
-  console.log("Testing encryption system...");
-  CryptoUtils.testCryptoSupport()
-    .then(success => {
-      console.log("Encryption test result:", success ? "PASSED" : "FAILED");
-    })
-    .catch(error => {
-      console.error("Error during encryption test:", error);
-    });
+  console.log("Testing OpenPGP encryption system...");
+  
+  // Small delay to ensure OpenPGP.js is fully loaded
+  setTimeout(() => {
+    CryptoUtils.testCryptoSupport()
+      .then(success => {
+        console.log("OpenPGP test result:", success ? "PASSED" : "FAILED");
+        
+        // Update crypto status display
+        const cryptoStatus = document.getElementById('crypto-status');
+        if (cryptoStatus) {
+          if (success) {
+            cryptoStatus.textContent = '🔒 OpenPGP Encryption Enabled';
+            cryptoStatus.style.color = '#28a745'; // green
+          } else {
+            cryptoStatus.textContent = '⚠️ OpenPGP Encryption Failed';
+            cryptoStatus.style.color = '#dc3545'; // red
+          }
+        }
+      })
+      .catch(error => {
+        console.error("Error during OpenPGP test:", error);
+      });
+  }, 500);
 });

@@ -32,7 +32,7 @@ const pollList = $('#pollList');
 function updateEncryptionStatus() {
   const joinEncStatus = document.getElementById('join-encryption-status');
   if (joinEncStatus) {
-    joinEncStatus.innerHTML = '🔒 Encryption Enabled';
+    joinEncStatus.innerHTML = '🔒 OpenPGP Encryption Enabled';
     joinEncStatus.style.color = '#28a745'; // green
   }
 }
@@ -77,7 +77,7 @@ function openPrivateChat(user, emit = true) {
     chat.innerHTML = `
       <div class="header">
         <span class="title">${escapeHtml(user.name)}</span>
-        <span class="encryption-status">🔒 Encrypted</span>
+        <span class="encryption-status">🔒 OpenPGP Encrypted</span>
         <button class="close">&times;</button>
       </div>
       <div class="messages"></div>
@@ -117,19 +117,21 @@ function openPrivateChat(user, emit = true) {
   }
 }
 
-// Function to send encrypted private messages (simplified)
+// Function to send encrypted private messages with OpenPGP
 async function sendEncryptedPrivateMessage(userId, plainText) {
   try {
+    // Get recipient's public key
     const recipientPublicKey = userPublicKeys.get(userId);
     if (!recipientPublicKey) {
-      console.error('No public key available for user:', userId);
+      console.error('No OpenPGP public key available for user:', userId);
+      alert('Cannot encrypt message: recipient public key not available');
       return;
     }
     
-    // Encrypt the message
-    console.log('Encrypting message...');
+    // Encrypt the message using OpenPGP
+    console.log('Encrypting message with OpenPGP...');
     const encryptedContent = await CryptoUtils.encrypt(recipientPublicKey, plainText);
-    console.log('Message encrypted successfully');
+    console.log('Message encrypted successfully with OpenPGP');
     
     // Send to server
     socket.emit('send_encrypted_private_message', {
@@ -149,8 +151,8 @@ async function sendEncryptedPrivateMessage(userId, plainText) {
       });
     }
   } catch (error) {
-    console.error('Failed to send encrypted message:', error);
-    alert('Could not encrypt message. Please try again.');
+    console.error('Failed to encrypt message with OpenPGP:', error);
+    alert('Could not encrypt message: ' + (error.message || 'Unknown error'));
   }
 }
 
@@ -295,24 +297,29 @@ socket.on('joined', async (state) => {
     joinSection.classList.add('hidden');
     chatSection.classList.remove('hidden');
     
-    // Generate encryption keys if needed - AFTER UI is updated
+    // Generate OpenPGP encryption keys
     if (!myKeyPair) {
-      console.log('Generating encryption keys...');
+      console.log('Generating OpenPGP encryption keys...');
       try {
+        // Generate browser-side keys
         myKeyPair = await CryptoUtils.generateKeyPair();
-        console.log('Encryption keys generated successfully');
+        console.log('OpenPGP keys generated successfully');
+        
+        // Update the server with our OpenPGP public key
+        socket.emit('update_user_key', { publicKey: myKeyPair.publicKey });
+        console.log('Sent OpenPGP public key to server');
       } catch (err) {
-        console.error('Failed to generate encryption keys:', err);
-        // Continue even if encryption fails - we'll fall back to unencrypted messages
+        console.error('Failed to generate OpenPGP keys:', err);
+        // Continue even if encryption fails
       }
     }
     
     // Store public keys for all users
     users = state.users;
     users.forEach(user => {
-      if (user.publicKey) {
-        userPublicKeys.set(user.id, user.publicKey);
-        console.log(`Stored public key for ${user.name}`);
+      // Skip storing keys from server - we'll use keys sent directly via update_user_key
+      if (user.id !== currentUser.id) {
+        console.log(`Awaiting OpenPGP public key from ${user.name}`);
       }
     });
     
@@ -328,7 +335,7 @@ socket.on('joined', async (state) => {
       // Update the join-encryption-status element
       const joinEncStatus = document.getElementById('join-encryption-status');
       if (joinEncStatus) {
-        joinEncStatus.innerHTML = '🔒 End-to-End Encryption Enabled';
+        joinEncStatus.innerHTML = '🔒 OpenPGP End-to-End Encryption Enabled';
       }
     }
   } catch (error) {
@@ -346,13 +353,38 @@ socket.on('user_joined', (user) => {
   addSystem(`${user.name} joined.`);
   users.push(user);
   
-  // Store their public key if available
-  if (user.publicKey) {
-    userPublicKeys.set(user.id, user.publicKey);
-    console.log(`Stored public key for new user ${user.name}`);
-  }
+  // We don't immediately store their server-generated key
+  // Instead, we'll wait for them to send their browser-generated OpenPGP key
+  console.log(`User ${user.name} joined, awaiting their OpenPGP public key`);
   
   renderUsers(users);
+});
+
+// Listen for user key updates (OpenPGP keys)
+socket.on('user_key_updated', (user) => {
+  console.log(`Received OpenPGP public key from ${user.name}`);
+  
+  // Store or update the user's public key
+  if (user.publicKey) {
+    userPublicKeys.set(user.id, user.publicKey);
+    console.log(`Stored OpenPGP public key for ${user.name}`);
+    
+    // Update encryption status in chat UI if exists
+    const chat = privateChats.get(user.id);
+    if (chat) {
+      const statusElem = chat.querySelector('.encryption-status');
+      if (statusElem) {
+        statusElem.textContent = '🔒 OpenPGP Encrypted';
+        statusElem.style.color = '#28a745'; // green
+      }
+    }
+  }
+  
+  // Update the user in our users array
+  const existingUserIndex = users.findIndex(u => u.id === user.id);
+  if (existingUserIndex >= 0) {
+    users[existingUserIndex] = user;
+  }
 });
 
 socket.on('user_left', (user) => {
@@ -368,36 +400,50 @@ socket.on('poll_new', renderPoll);
 socket.on('poll_update', renderPoll);
 socket.on('private_message', addPrivateMessage);
 
-// Handler for encrypted private messages (simplified)
+// Handler for encrypted private messages with OpenPGP
 socket.on('encrypted_private_message', async (msg) => {
   try {
     const { from, to, encryptedContent, ts } = msg;
     
     // Only decrypt if we're the recipient
     if (currentUser && to.id === currentUser.id && myKeyPair && myKeyPair.privateKey) {
-      console.log('Received encrypted message, attempting to decrypt...');
+      console.log('Received encrypted message, attempting to decrypt with OpenPGP...');
       
       try {
-        // Decrypt the message
+        // Decrypt the message using OpenPGP
         const decryptedText = await CryptoUtils.decrypt(myKeyPair.privateKey, encryptedContent);
-        console.log('Message decrypted successfully');
+        console.log('OpenPGP decryption successful');
         
-        // Display the decrypted message
-        addPrivateMessage({
-          from,
-          to,
-          text: decryptedText,
-          ts,
-          encrypted: true
-        });
+        // Check for decryption errors indicated by special format
+        if (decryptedText && decryptedText.startsWith('[Decryption failed')) {
+          console.warn('OpenPGP decryption returned error:', decryptedText);
+          
+          // Show decryption error in UI
+          addPrivateMessage({
+            from,
+            to,
+            text: decryptedText,
+            ts,
+            encrypted: true
+          });
+        } else {
+          // Display the successfully decrypted message
+          addPrivateMessage({
+            from,
+            to,
+            text: decryptedText,
+            ts,
+            encrypted: true
+          });
+        }
       } catch (decryptError) {
-        console.error('Decryption error:', decryptError);
+        console.error('OpenPGP decryption error:', decryptError);
         
         // Show error in UI
         addPrivateMessage({
           from: msg.from,
           to: msg.to,
-          text: '[Could not decrypt message]',
+          text: `[OpenPGP decryption failed - ${decryptError.message}]`,
           ts: msg.ts,
           encrypted: true
         });
@@ -406,7 +452,7 @@ socket.on('encrypted_private_message', async (msg) => {
       // This is a message we sent - already displayed in sendEncryptedPrivateMessage
       console.log('Received confirmation of sent encrypted message');
     } else {
-      console.warn('Received encrypted message but cannot decrypt it');
+      console.warn('Received encrypted message but cannot decrypt it (no keys available)');
     }
   } catch (error) {
     console.error('Failed to process encrypted message:', error);
@@ -415,7 +461,7 @@ socket.on('encrypted_private_message', async (msg) => {
     addPrivateMessage({
       from: msg.from,
       to: msg.to,
-      text: '[Error processing message]',
+      text: '[Error processing encrypted message]',
       ts: msg.ts,
       encrypted: true
     });

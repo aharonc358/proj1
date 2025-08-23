@@ -37,6 +37,7 @@ messages = []  # Message objects converted to dicts
 polls = {}  # id -> { id, question, options: [{id,text,votes}], votesByUser: {userId: optionId}, createdAt }
 users = {}  # socket_id -> User objects
 private_messages = {}  # key 'id1:id2' -> [{from,to,text,ts,encrypted,encryptedContent}]
+user_keys = {}  # id -> publicKey (OpenPGP format)
 
 def dm_key(id1, id2):
     """Generate a consistent key for private messages between two users"""
@@ -90,6 +91,16 @@ def handle_join(data):
         'messages': messages,
         'polls': list(polls.values())
     })
+    
+    # Send all known OpenPGP keys to the new user
+    for uid, key in user_keys.items():
+        # Find the user object for this key
+        user_obj = next((u for u in users.values() if u.id == uid), None)
+        if user_obj:
+            # Create a user dict with the key
+            key_update = user_obj.to_dict()
+            # Send to the new user only
+            emit('user_key_updated', key_update)
     
     # Notify others
     emit('user_joined', user.to_dict(), room=ROOM_NAME, skip_sid=socket_id)
@@ -257,6 +268,30 @@ def handle_disconnect():
         # Clean up - we'll keep the user data in case they reconnect
         # but mark them as not in the room
         # In a real app with persistence, you'd want to handle cleanup differently
+
+# Add handler for key exchange between users
+@socketio.on('update_user_key')
+def handle_user_key_update(data):
+    """Handle OpenPGP public key updates from users."""
+    socket_id = request.sid
+    from_user = users.get(socket_id)
+    if not from_user:
+        return
+    
+    public_key = data.get('publicKey')
+    if not public_key:
+        return
+    
+    # Update the user's public key
+    from_user.set_public_key(public_key)
+    
+    # Store the key in our global dictionary
+    user_keys[from_user.id] = public_key
+    print(f"Updated OpenPGP public key for {from_user.name}")
+    
+    # Broadcast the updated user data to all users
+    user_dict = from_user.to_dict()
+    emit('user_key_updated', user_dict, room=ROOM_NAME)
 
 # Add handler for encrypted private messages
 @socketio.on('send_encrypted_private_message')
