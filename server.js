@@ -61,6 +61,9 @@ io.on('connection', (socket) => {
       messages,
       polls: Array.from(polls.values())
     });
+    try {
+      console.log(`POLL: sent initial polls to ${user.name} (count=${polls.size})`);
+    } catch {}
 
     // Notify others
     socket.to(ROOM_NAME).emit('user_joined', user);
@@ -110,11 +113,13 @@ io.on('connection', (socket) => {
     if (!user) return;
     if (typeof question !== 'string' || !question.trim()) return;
     if (!Array.isArray(options)) return;
+    console.log(`POLL: create request by ${user.name} q='${(question||'').trim()}' options=${Array.isArray(options)?options.length:'N/A'}`);
     const cleanOpts = options
       .map(o => (typeof o === 'string' ? o.trim() : ''))
       .filter(o => o).slice(0, 8); // cap options to 8
     if (cleanOpts.length < 2) {
       socket.emit('error_msg', 'Provide at least 2 options.');
+      console.log('POLL: create rejected (need at least 2 options)');
       return;
     }
 
@@ -129,28 +134,30 @@ io.on('connection', (socket) => {
     };
     polls.set(id, poll);
     io.to(ROOM_NAME).emit('poll_new', poll);
+    console.log(`POLL: created id=${id} by=${user.name} opts=${cleanOpts.length}`);
   });
 
   socket.on('vote', ({ pollId, optionId }) => {
     const user = users.get(socket.id);
     if (!user) return;
     const poll = polls.get(pollId);
-    if (!poll) return;
+    if (!poll) { console.log(`POLL: vote rejected (unknown poll ${pollId})`); return; }
 
     // If already voted, decrement prior choice
     const prev = poll.votesByUser[user.id];
     if (prev) {
       const prevOpt = poll.options.find(o => o.id === prev);
-      if (prevOpt) prevOpt.votes = Math.max(0, prevOpt.votes - 1);
+      if (prevOpt) { prevOpt.votes = Math.max(0, prevOpt.votes - 1); console.log(`POLL: ${user.name} changed vote from option=${prev} to option=${optionId}`); }
     }
 
     // Set new vote
     const opt = poll.options.find(o => o.id === optionId);
-    if (!opt) return;
+    if (!opt) { console.log(`POLL: vote rejected (unknown option ${optionId})`); return; }
     poll.votesByUser[user.id] = optionId;
     opt.votes += 1;
 
     io.to(ROOM_NAME).emit('poll_update', poll);
+    console.log(`POLL: updated poll=${pollId} option=${optionId} votes=${opt.votes}`);
   });
 
   socket.on('disconnect', () => {

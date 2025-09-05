@@ -28,6 +28,138 @@ const addOptionBtn = $('#addOption');
 const createPollBtn = $('#createPollBtn');
 const pollList = $('#pollList');
 
+// Anonymous poll crypto cache
+let anonTallyPubKeyPem = null; // PEM string from server (RSA SPKI)
+let anonTallyKeyImported = null; // CryptoKey
+const anonFinalizeTokens = new Map(); // pollId -> { nonce, sig }
+const myAnonVotes = new Map(); // pollId -> optionId (local only)
+const myAnonVoterNonce = new Map(); // pollId -> stable random nonce
+
+async function importPemPublicKey(pem) {
+  try {
+    const b64 = pem.replace(/-----BEGIN PUBLIC KEY-----/, '')
+                  .replace(/-----END PUBLIC KEY-----/, '')
+                  .replace(/\r?\n/g, '');
+    const binaryDer = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+    return await window.crypto.subtle.importKey(
+      'spki',
+      binaryDer.buffer,
+      { name: 'RSA-OAEP', hash: 'SHA-256' },
+      true,
+      ['encrypt']
+    );
+  } catch (e) {
+    console.error('Failed to import RSA public key:', e);
+    throw e;
+  }
+}
+
+async function ensureAnonTallyKey() {
+  if (anonTallyKeyImported) return anonTallyKeyImported;
+  return new Promise((resolve, reject) => {
+    const onKey = async ({ pem }) => {
+      try {
+        anonTallyPubKeyPem = pem;
+        anonTallyKeyImported = await importPemPublicKey(pem);
+        console.log('ANONPOLL: imported tally public key');
+        socket.off('anon_tally_pubkey', onKey);
+        resolve(anonTallyKeyImported);
+      } catch (e) {
+        socket.off('anon_tally_pubkey', onKey);
+        reject(e);
+      }
+    };
+    socket.on('anon_tally_pubkey', onKey);
+    console.log('ANONPOLL: requesting tally public key (PIR)');
+    socket.emit('pir_get_anon_tally_pubkey');
+    // Fallback timeout
+    setTimeout(() => reject(new Error('Timeout waiting for tally key')), 8000);
+  });
+}
+
+function requestAnonVoteToken(pollId) {
+  return new Promise((resolve, reject) => {
+    const handler = (payload) => {
+      if (payload && payload.pollId === pollId) {
+        console.log('ANONPOLL: received vote token for', pollId);
+        socket.off('anon_vote_token', handler);
+        resolve(payload);
+      }
+    };
+    socket.on('anon_vote_token', handler);
+    console.log('ANONPOLL: minting vote token via PIR for', pollId);
+    socket.emit('pir_mint_anon_vote_token', { pollId });
+    setTimeout(() => {
+      socket.off('anon_vote_token', handler);
+      reject(new Error('Timeout waiting for anon vote token'));
+    }, 8000);
+  });
+}
+
+async function encryptVoteChoice(optionId, voterNonce, ts) {
+  const key = await ensureAnonTallyKey();
+  const payload = `${optionId}|${voterNonce}|${ts}`;
+  const data = new TextEncoder().encode(payload);
+  const ct = await window.crypto.subtle.encrypt(
+    { name: 'RSA-OAEP' },
+    key,
+    data
+  );
+  // base64 encode ciphertext
+  const bytes = new Uint8Array(ct);
+  let binary = '';
+  bytes.forEach(b => binary += String.fromCharCode(b));
+  return btoa(binary);
+}
+
+async function castAnonymousVote(pollId, optionId) {
+  try {
+    console.log('ANONPOLL: casting anonymous vote', { pollId, optionId });
+    // Prevent voting after finalize (UI-only safeguard)
+    const container = document.getElementById(`anon-poll-${pollId}`);
+    if (container && container.classList.contains('finalized')) {
+      console.warn('ANONPOLL: poll finalized; vote ignored locally');
+      return;
+    }
+    // Prevent redundant same-option re-vote
+    const current = myAnonVotes.get(pollId);
+    if (current && current === optionId) {
+      console.log('ANONPOLL: same option selected; skipping duplicate vote');
+      return;
+    }
+    // Ensure stable per-poll voter nonce
+    let voterNonce = myAnonVoterNonce.get(pollId);
+    if (!voterNonce) {
+      const bytes = new Uint8Array(16);
+      window.crypto.getRandomValues(bytes);
+      voterNonce = Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+      myAnonVoterNonce.set(pollId, voterNonce);
+    }
+    const tokenResp = await requestAnonVoteToken(pollId);
+    const ts = Date.now();
+    const ciphertext = await encryptVoteChoice(optionId, voterNonce, ts);
+    socket.emit('cast_anon_vote', {
+      pollId,
+      token: tokenResp.token,
+      sig: tokenResp.sig,
+      ciphertext
+    });
+    console.log('ANONPOLL: anonymous vote submitted (queued)');
+    // Record locally for user-only visibility
+    myAnonVotes.set(pollId, optionId);
+    if (container) {
+      // clear previous selection
+      container.querySelectorAll('button.vote.voted-by-me').forEach(b => b.classList.remove('voted-by-me'));
+      const selectedBtn = container.querySelector(`button.vote[data-option="${optionId}"]`);
+      if (selectedBtn) selectedBtn.classList.add('voted-by-me');
+    }
+  } catch (e) {
+    console.error('ANONPOLL: failed to cast anonymous vote:', e);
+    // Non-intrusive notice; do not block user with alerts
+    addSystem('Anonymous vote could not be submitted right now. Please try again.');
+  }
+}
+
 // Function to update security status in the info panel
 function updateSecurityStatus() {
   // Update encryption status - always green for active features
@@ -231,9 +363,73 @@ function renderPoll(poll) {
     btn.onclick = () => {
       const pollId = btn.getAttribute('data-poll');
       const optionId = btn.getAttribute('data-option');
-      socket.emit('vote', { pollId, optionId });
+      // Legacy (non-anonymous) voting is disabled; use anonymous flow instead
+      castAnonymousVote(pollId, optionId);
     };
   });
+}
+
+function renderAnonPoll(poll) {
+  // poll: { id, question, options: [{id,text,votes}], finalized }
+  const existing = document.getElementById(`anon-poll-${poll.id}`);
+  const container = existing || document.createElement('div');
+  container.id = `anon-poll-${poll.id}`;
+  container.className = 'poll';
+
+  const isFinal = !!poll.finalized;
+  container.innerHTML = `
+    <div class="q">${escapeHtml(poll.question)} <span style="font-size:12px;color:#28a745">(Anonymous)</span></div>
+    <div class="options">
+      ${poll.options.map(o => `
+        <button class="vote" data-poll="${poll.id}" data-option="${o.id}">
+          ${escapeHtml(o.text)} — <strong>${isFinal ? o.votes : 0}</strong>
+        </button>
+      `).join('')}
+    </div>
+    <div class="meta">${isFinal ? 'Finalized' : 'Awaiting finalization (counts hidden)'} </div>
+    <div class="controls"></div>
+  `;
+
+  if (!existing) pollList.prepend(container);
+
+  // Mark finalized state in DOM and disable voting
+  if (isFinal) {
+    container.classList.add('finalized');
+  } else {
+    container.classList.remove('finalized');
+  }
+
+  container.querySelectorAll('.vote').forEach(btn => {
+    btn.onclick = async () => {
+      const pollId = btn.getAttribute('data-poll');
+      const optionId = btn.getAttribute('data-option');
+      await castAnonymousVote(pollId, optionId);
+    };
+  });
+
+  // Add finalize button if we have a finalize token for this poll
+  const controls = container.querySelector('.controls');
+  if (controls) {
+    controls.innerHTML = '';
+    if (!isFinal && anonFinalizeTokens.has(poll.id)) {
+      const endBtn = document.createElement('button');
+      endBtn.textContent = 'End poll (show results)';
+      endBtn.onclick = () => {
+        const tok = anonFinalizeTokens.get(poll.id);
+        if (!tok) return;
+        console.log('ANONPOLL: creator finalizing poll', poll.id);
+        socket.emit('finalize_anon_poll', { pollId: poll.id, nonce: tok.nonce, sig: tok.sig });
+      };
+      controls.appendChild(endBtn);
+    }
+  }
+
+  // Highlight my selection (only visible to me)
+  const myOpt = myAnonVotes.get(poll.id);
+  if (myOpt) {
+    const sel = container.querySelector(`button.vote[data-option="${myOpt}"]`);
+    if (sel) sel.classList.add('voted-by-me');
+  }
 }
 
 // Event handlers - Direct implementation to avoid issues
@@ -355,9 +551,15 @@ async function sendEncryptedGroupMessage(plainText) {
     
     console.log(`Group message sent to server with ID ${messageId}`);
     
-    // We no longer add the message immediately to the UI
-    // Instead, we'll wait for the server to send it back through the socket
-    // This prevents duplicate messages and ensures proper message verification
+    // Add message immediately to UI for sender feedback
+    addEncryptedGroupMessage({
+      user: currentUser,
+      text: plainText,
+      ts: Date.now(),
+      encrypted: true,
+      messageId,
+      mixed: false // not yet mixed
+    });
     
     return true;
     
@@ -405,7 +607,8 @@ createPollBtn.onclick = () => {
     alert('Provide at least 2 options.');
     return;
   }
-  socket.emit('create_poll', { question, options: opts });
+  console.log('ANONPOLL: creating anonymous poll');
+  socket.emit('create_anon_poll', { question, options: opts });
   pollQuestion.value = '';
   optionsDiv.innerHTML = '';
   addOptionBtn.click(); // add two defaults
@@ -454,7 +657,12 @@ socket.on('joined', async (state) => {
     state.messages.forEach(addMessage);
     
     pollList.innerHTML = '';
+    // Render any legacy polls as anonymous-capable (will route through anon voting)
     state.polls.forEach(renderPoll);
+    // Render anonymous polls from server snapshot
+    if (Array.isArray(state.anon_polls)) {
+      state.anon_polls.forEach(renderAnonPoll);
+    }
     
         // Update security panel
         updateSecurityStatus();
@@ -467,7 +675,11 @@ socket.on('room_full', ({ max }) => {
   alert(`Room is full (max ${max} users). Try again later.`);
 });
 
-socket.on('error_msg', (msg) => alert(msg));
+socket.on('error_msg', (msg) => {
+  // Non-blocking error display to avoid interrupting vote changes
+  console.warn('Server error:', msg);
+  addSystem(`[Server notice] ${msg}`);
+});
 
 socket.on('user_joined', (user) => {
   addSystem(`${user.name} joined.`);
@@ -518,6 +730,54 @@ socket.on('message_new', addMessage);
 
 socket.on('poll_new', renderPoll);
 socket.on('poll_update', renderPoll);
+// Anonymous poll events
+socket.on('anon_poll_new', (poll) => {
+  console.log('ANONPOLL: new poll', poll);
+  // Single-poll policy: clear any existing anon polls in UI
+  Array.from(document.querySelectorAll('[id^="anon-poll-"]')).forEach(el => el.remove());
+  renderAnonPoll(poll);
+});
+socket.on('anon_ballot_queued', ({ pollId }) => {
+  console.log('ANONPOLL: ballot queued for', pollId);
+});
+socket.on('anon_poll_final', (poll) => {
+  console.log('ANONPOLL: final results', poll);
+  // Ensure only this poll remains (single-poll policy)
+  Array.from(document.querySelectorAll('[id^="anon-poll-"]')).forEach(el => el.remove());
+  renderAnonPoll(poll);
+});
+socket.on('anon_finalize_token', ({ pollId, nonce, sig }) => {
+  console.log('ANONPOLL: received finalize token for poll', pollId);
+  anonFinalizeTokens.set(pollId, { nonce, sig });
+  // Re-render to reveal finalize button for creator
+  const existing = document.getElementById(`anon-poll-${pollId}`);
+  if (existing) {
+    // Force refresh via synthetic event data fetch; the current poll markup will be rebuilt on next update
+    // Minimal immediate update: add controls inline
+    const controls = existing.querySelector('.controls');
+    if (controls && !existing.classList.contains('finalized')) {
+      const endBtn = document.createElement('button');
+      endBtn.textContent = 'End poll (show results)';
+      endBtn.onclick = () => {
+        const tok = anonFinalizeTokens.get(pollId);
+        if (!tok) return;
+        console.log('ANONPOLL: creator finalizing poll', pollId);
+        socket.emit('finalize_anon_poll', { pollId, nonce: tok.nonce, sig: tok.sig });
+      };
+      controls.appendChild(endBtn);
+    }
+  }
+});
+
+// If server rotates tally key, drop cached key and request again on next vote
+socket.on('anon_tally_key_rotated', () => {
+  console.log('ANONPOLL: tally key rotated; clearing cached key and tokens');
+  anonTallyPubKeyPem = null;
+  anonTallyKeyImported = null;
+  anonFinalizeTokens.clear();
+  myAnonVotes.clear();
+  // Do NOT clear current poll UI here; final results should remain visible
+});
 socket.on('private_message', addPrivateMessage);
 
 // Handler for encrypted private messages with OpenPGP
@@ -611,6 +871,12 @@ socket.on('encrypted_group_message', async (msg) => {
       timestamp: ts,
       mixnetProcessed: !!mixed
     });
+    
+    // Skip if this is our own message (already shown immediately)
+    if (currentUser && user && user.id === currentUser.id) {
+      console.log('Skipping own message to avoid duplicate');
+      return;
+    }
     
     // Only decrypt if we have keys and there's encrypted content for us
     if (currentUser && myKeyPair && myKeyPair.privateKey && encryptedContent) {

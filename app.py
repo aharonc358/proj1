@@ -4,16 +4,21 @@
 
 from flask import Flask, send_from_directory, request
 from flask_socketio import SocketIO, emit, join_room
+
 import os
 import time
 import uuid
 from collections import defaultdict
 
 # Import our models
+from models.anonymous_polls import AnonymousPolling  # NEW
+# old ones below
 from models.user import User
 from models.message import Message, PrivateMessage, EncryptedMessage, EncryptedPrivateMessage, EncryptedGroupMessage
 from crypto.elgamal import ElGamalCrypto
 from crypto.mixnet import MixNode, MixnetManager
+from crypto.pir import PIR
+import random
 
 app = Flask(__name__)
 socketio = SocketIO(app, 
@@ -39,6 +44,9 @@ polls = {}  # id -> { id, question, options: [{id,text,votes}], votesByUser: {us
 users = {}  # socket_id -> User objects
 private_messages = {}  # key 'id1:id2' -> [{from,to,text,ts,encrypted,encryptedContent}]
 user_keys = {}  # id -> publicKey (OpenPGP format)
+
+anon_polls = AnonymousPolling()  # NEW
+
 
 # Initialize mixnet for anonymous message delivery
 mixnet_manager = MixnetManager(socketio)
@@ -122,8 +130,13 @@ def handle_join(data):
         'self': user.to_dict(),
         'users': user_dicts,
         'messages': [],  # Empty array instead of full message history
-        'polls': list(polls.values())
+        'polls': [],  # Legacy polls disabled; use anon_polls only
+        'anon_polls': anon_polls.list_public_polls()  # NEW
     })
+    try:
+        print(f"POLL: sent initial polls to {name} (count={len(polls)})")
+    except Exception:
+        pass
     
     # Send all known OpenPGP keys to the new user
     for uid, key in user_keys.items():
@@ -232,79 +245,19 @@ def handle_clear_private_history(data):
 
 @socketio.on('create_poll')
 def handle_create_poll(data):
-    """Handle creation of a new poll"""
+    """Legacy poll creation disabled. Use create_anon_poll."""
     socket_id = request.sid
     user = users.get(socket_id)
-    
-    if not user:
-        return
-        
-    question = data.get('question', '').strip()
-    options = data.get('options', [])
-    
-    if not question:
-        return
-        
-    if not isinstance(options, list):
-        return
-        
-    # Clean and filter options
-    clean_opts = []
-    for o in options:
-        if isinstance(o, str) and o.strip():
-            clean_opts.append(o.strip())
-    
-    clean_opts = clean_opts[:8]  # cap options to 8
-    
-    if len(clean_opts) < 2:
-        emit('error_msg', 'Provide at least 2 options.')
-        return
-        
-    poll_id = str(uuid.uuid4())
-    poll = {
-        'id': poll_id,
-        'question': question,
-        'createdBy': user.name,
-        'options': [{'id': str(uuid.uuid4()), 'text': text, 'votes': 0} for text in clean_opts],
-        'votesByUser': {},  # userId -> optionId
-        'createdAt': int(time.time() * 1000)
-    }
-    
-    polls[poll_id] = poll
-    emit('poll_new', poll, room=ROOM_NAME)
+    print(f"POLL(legacy): create requested by {user.name if user else 'unknown'} - REJECTED (use create_anon_poll)")
+    emit('error_msg', 'Legacy polls are disabled. Please use anonymous polls.')
 
 @socketio.on('vote')
 def handle_vote(data):
-    """Handle votes on polls"""
+    """Legacy voting disabled. Use anonymous vote flow."""
     socket_id = request.sid
     user = users.get(socket_id)
-    
-    if not user:
-        return
-        
-    poll_id = data.get('pollId')
-    option_id = data.get('optionId')
-    
-    poll = polls.get(poll_id)
-    if not poll:
-        return
-        
-    # If already voted, decrement prior choice
-    prev = poll['votesByUser'].get(user.id)
-    if prev:
-        prev_opt = next((o for o in poll['options'] if o['id'] == prev), None)
-        if prev_opt:
-            prev_opt['votes'] = max(0, prev_opt['votes'] - 1)
-    
-    # Set new vote
-    opt = next((o for o in poll['options'] if o['id'] == option_id), None)
-    if not opt:
-        return
-        
-    poll['votesByUser'][user.id] = option_id
-    opt['votes'] += 1
-    
-    emit('poll_update', poll, room=ROOM_NAME)
+    print(f"POLL(legacy): vote requested by {user.name if user else 'unknown'} - REJECTED (use anonymous voting)")
+    emit('error_msg', 'Legacy voting is disabled. Please use anonymous voting.')
 
 @socketio.on('disconnect')
 def handle_disconnect():
@@ -466,6 +419,105 @@ def handle_encrypted_group_message(data):
         print(f"Encrypted group message sent from {from_user.name} to {len(encrypted_contents)} recipients")
     except Exception as e:
         print(f"Error processing encrypted group message: {e}")
+
+
+# NEW SOCKET.IO HANDLERS
+
+@socketio.on('get_anon_tally_pubkey')
+def handle_get_anon_tally_pubkey():
+    pem = anon_polls.public_key()
+    print("ANONPOLL: served tally public key (PEM length:", len(pem), ")")
+    emit('anon_tally_pubkey', {'pem': pem}, room=request.sid)
+
+@socketio.on('pir_get_anon_tally_pubkey')
+def handle_pir_get_anon_tally_pubkey():
+    # Provide the tally key via PIR database of size 1 (for API symmetry)
+    db = [anon_polls.public_key()]
+    q = PIR.generate_query(total_items=len(db), target_index=0)
+    pem = PIR.process_query(db, q)
+    print("ANONPOLL: PIR served tally public key (PEM length:", len(pem) if pem else 0, ")")
+    emit('anon_tally_pubkey', {'pem': pem}, room=request.sid)
+
+@socketio.on('create_anon_poll')
+def handle_create_anon_poll(data):
+    socket_id = request.sid
+    user = users.get(socket_id)
+    if not user:
+        return
+    question = (data.get('question') or '').strip()
+    options = [o.strip() for o in (data.get('options') or []) if isinstance(o, str) and o.strip()]
+    try:
+        poll_id = anon_polls.create_poll(question, user.name, options)
+    except Exception as e:
+        emit('error_msg', f'Anonymous poll error: {e}')
+        return
+    pub = anon_polls.public_results(poll_id)
+    print(f"ANONPOLL: create poll={poll_id} q='{question}' opts={len(pub.get('options', []))}")
+    emit('anon_poll_new', pub, room=ROOM_NAME)
+    # Send finalize token only to creator
+    tok = anon_polls.mint_finalize_token(poll_id)
+    if tok:
+        print(f"ANONPOLL: issued finalize token to creator {user.name} for poll={poll_id}")
+        emit('anon_finalize_token', { 'pollId': poll_id, **tok }, room=socket_id)
+    # Note: do not emit key-rotation here to avoid clearing creator's UI/token prematurely.
+
+@socketio.on('mint_anon_vote_token')
+def handle_mint_anon_vote_token(data):
+    poll_id = data.get('pollId')
+    tok = anon_polls.mint_vote_token(poll_id)
+    if not tok:
+        emit('error_msg', 'Invalid anonymous poll ID')
+        return
+    # NOTE: This does not tie token to a user on the server.
+    print(f"ANONPOLL: minted vote token for poll={poll_id}")
+    emit('anon_vote_token', {'pollId': poll_id, **tok}, room=request.sid)
+
+@socketio.on('pir_mint_anon_vote_token')
+def handle_pir_mint_anon_vote_token(data):
+    poll_id = data.get('pollId')
+    db = anon_polls.pir_token_database(poll_id, min_size=256)
+    if not db:
+        emit('error_msg', 'Invalid anonymous poll ID')
+        return
+    # Select a random index to avoid reusing the same token across attempts
+    idx = random.randrange(len(db))
+    q = PIR.generate_query(total_items=len(db), target_index=idx)
+    tok = PIR.process_query(db, q)
+    if not tok:
+        emit('error_msg', 'No anonymous vote tokens available')
+        return
+    print(f"ANONPOLL: PIR served vote token for poll={poll_id}")
+    emit('anon_vote_token', {'pollId': poll_id, **tok}, room=request.sid)
+
+@socketio.on('cast_anon_vote')
+def handle_cast_anon_vote(data):
+    poll_id = data.get('pollId')
+    token = data.get('token')
+    sig = data.get('sig')
+    ciphertext = data.get('ciphertext')
+    ok = anon_polls.submit_encrypted_vote(poll_id=poll_id, token=token, sig=sig, ciphertext=ciphertext)
+    if ok:
+        print(f"ANONPOLL: ballot accepted poll={poll_id} ct_len={len(ciphertext) if ciphertext else 0}")
+        emit('anon_ballot_queued', {'pollId': poll_id}, room=request.sid)
+    else:
+        print(f"ANONPOLL: ballot rejected poll={poll_id}")
+        emit('error_msg', 'Anonymous ballot rejected')
+
+@socketio.on('finalize_anon_poll')
+def handle_finalize_anon_poll(data):
+    poll_id = data.get('pollId')
+    nonce = data.get('nonce')
+    sig = data.get('sig')
+    res = anon_polls.finalize(poll_id, finalize_nonce=nonce, finalize_sig=sig)
+    if res:
+        # Only aggregated counts are ever emitted
+        print("ANONPOLL: finalized", poll_id, "→", [(o['text'], o['votes']) for o in res['options']])
+        emit('anon_poll_final', res, room=ROOM_NAME)
+        # After finalize, notify clients that crypto state rotated; keys/tokens must refresh
+        emit('anon_tally_key_rotated', {}, room=ROOM_NAME)
+    else:
+        emit('error_msg', 'Unknown anonymous poll')
+
 
 if __name__ == '__main__':
     # Start mixnet processing
