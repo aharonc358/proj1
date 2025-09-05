@@ -95,8 +95,8 @@ proj1/
 │   ├── message.py           # Message models with encryption support
 │   └── poll.py              # Poll model
 ├── public/                  # Static files
-│   ├── index_python.html    # Enhanced UI with security indicators
-│   ├── client_python.js     # Client with encryption and mixnet support
+│   ├── index.html           # Enhanced UI with security indicators
+│   ├── client.js            # Client with encryption and mixnet support
 │   ├── crypto-utils.js      # OpenPGP implementation for browser
 │   └── styles.css           # Styling including security indicators
 └── requirements.txt         # Python dependencies

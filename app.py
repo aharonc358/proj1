@@ -30,7 +30,7 @@ socketio = SocketIO(app,
 # Serve static client files
 @app.route('/')
 def index():
-    return send_from_directory('public', 'index_python.html')
+    return send_from_directory('public', 'index.html')
 
 @app.route('/<path:path>')
 def static_files(path):
