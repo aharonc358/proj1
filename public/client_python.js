@@ -872,9 +872,10 @@ socket.on('encrypted_group_message', async (msg) => {
       mixnetProcessed: !!mixed
     });
     
-    // Skip if this is our own message (already shown immediately)
+    // If this is our own message, update the existing message with mixnet status
     if (currentUser && user && user.id === currentUser.id) {
-      console.log('Skipping own message to avoid duplicate');
+      console.log('Updating own message with mixnet status:', { messageId, mixed });
+      updateExistingMessage(messageId, mixed);
       return;
     }
     
@@ -920,6 +921,26 @@ socket.on('encrypted_group_message', async (msg) => {
     console.error('Failed to process encrypted group message:', error);
   }
 });
+
+// Function to update an existing message with mixnet status
+function updateExistingMessage(messageId, mixed) {
+  if (!messageId) return false;
+  
+  // Find the message by its ID
+  const messageDiv = document.querySelector(`[data-message-id="${messageId}"]`);
+  if (!messageDiv) {
+    console.log(`Message with ID ${messageId} not found for update`);
+    return false;
+  }
+  
+  // Add the mixed class if the message was processed by mixnet
+  if (mixed) {
+    messageDiv.classList.add('mixed');
+    console.log(`Updated message ${messageId} with mixnet indicator`);
+  }
+  
+  return true;
+}
 
 // Function to display encrypted group messages in the main chat
 function addEncryptedGroupMessage({ user, text, ts, encrypted = true, messageId, mixed = false }) {
