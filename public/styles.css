@@ -53,6 +53,16 @@ h1 { font-size: 18px; margin: 0; }
 .poll .options { display: flex; flex-direction: column; gap: 6px; }
 .poll .options .vote { text-align: left; padding: 8px; border: 1px solid #ddd; background: #f9fafb; border-radius: 8px; cursor: pointer; }
 
+.poll .options .vote.voted-by-me {
+  outline: 2px solid #28a745;
+  background: rgba(40,167,69,0.1);
+}
+
+.poll.finalized .options .vote {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
 #privateChats {
   position: fixed;
   bottom: 10px;
